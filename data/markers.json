@@ -1,0 +1,33 @@
+{
+  "categories": [
+    { "id": "settlements", "name": "Settlements", "icon": "assets/icons/city.svg" },
+    { "id": "landmarks", "name": "Landmarks", "icon": "assets/icons/landmark.svg" },
+    { "id": "hazards", "name": "Hazards", "icon": "assets/icons/skull.svg" }
+  ],
+  "markers": [
+    {
+      "id": "basecamp",
+      "category": "settlements",
+      "x": 40,
+      "y": -60,
+      "name": "Basecamp",
+      "note": "Where it all began. Safe haven, supplies, and a warm bed."
+    },
+    {
+      "id": "old-watchtower",
+      "category": "landmarks",
+      "x": -300,
+      "y": -350,
+      "name": "Old Watchtower",
+      "note": "A crumbling tower overlooking the plains. Someone lit a fire here recently."
+    },
+    {
+      "id": "marsh-of-teeth",
+      "category": "hazards",
+      "x": 700,
+      "y": 600,
+      "name": "Marsh of Teeth",
+      "note": "The party lost a mule here. Do not travel after dark."
+    }
+  ]
+}

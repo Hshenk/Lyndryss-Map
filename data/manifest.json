@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "updated": "2026-06-12",
+  "tileSize": 480,
+  "layers": ["base", "territory", "culture", "religion"],
+  "tiles": {
+    "base": [
+      [-2, -1], [-1, -1], [0, -1], [1, -1],
+      [-2, 0],  [-1, 0],  [0, 0],  [1, 0],
+      [-2, 1],  [-1, 1],  [0, 1],  [1, 1]
+    ],
+    "territory": [],
+    "culture": [],
+    "religion": []
+  }
+}

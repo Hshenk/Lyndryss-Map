@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Live map of Lyndryss — the world of the westmarch campaign 'Aye Dark Overlord'. Shows everything the party has charted so far.">
+  <title>Lyndryss — Campaign Map</title>
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="icon" href="assets/icons/compass.svg" type="image/svg+xml">
+</head>
+<body>
+  <div id="app" class="app">
+
+    <!-- ================= Header ================= -->
+    <header id="app-header" class="app-header">
+      <h1 class="app-title">
+        <img class="app-title__icon" src="assets/icons/compass.svg" alt="" width="22" height="22">
+        Lyndryss
+        <span class="app-title__sub">Aye Dark Overlord</span>
+      </h1>
+
+      <div class="header-meta">
+        <!-- JS: fill from manifest.json -->
+        <span id="map-updated" class="header-meta__item" title="Last map update">—</span>
+        <span id="map-version" class="header-meta__item" title="Map version">v0</span>
+      </div>
+
+      <button id="sidebar-toggle" class="btn btn--icon sidebar-toggle" type="button"
+              aria-controls="sidebar" aria-expanded="true" title="Toggle panel">
+        <!-- JS: toggle .sidebar--collapsed on #sidebar and aria-expanded here -->
+        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+          <path d="M4 6h16M4 12h16M4 18h16" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/>
+        </svg>
+      </button>
+    </header>
+
+    <!-- ================= Map viewport ================= -->
+    <main id="map-container" class="map-container">
+      <!-- JS: size the canvas to the container (watch devicePixelRatio) and draw
+           tiles, overlays, markers, and annotations here -->
+      <canvas id="map-canvas" class="map-canvas">
+        Your browser does not support canvas — the map cannot be displayed.
+      </canvas>
+
+      <!-- Floating zoom controls -->
+      <div id="zoom-controls" class="zoom-controls" role="group" aria-label="Zoom controls">
+        <button id="zoom-in" class="btn btn--icon" type="button" title="Zoom in" aria-label="Zoom in">+</button>
+        <button id="zoom-out" class="btn btn--icon" type="button" title="Zoom out" aria-label="Zoom out">−</button>
+        <button id="zoom-reset" class="btn btn--icon zoom-controls__reset" type="button" title="Reset view" aria-label="Reset view">
+          <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+            <circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2" fill="none"/>
+            <circle cx="12" cy="12" r="2.5" fill="currentColor"/>
+          </svg>
+        </button>
+      </div>
+
+      <!-- Cursor world-coordinates readout. JS: update textContent on pointermove. -->
+      <output id="coords-readout" class="coords-readout" aria-live="off">0, 0</output>
+
+      <!-- Popups (marker info, note editing) get appended here by JS and positioned
+           absolutely. The layer spans the viewport but ignores pointer events;
+           .popup re-enables them. -->
+      <div id="popup-layer" class="popup-layer"></div>
+
+      <!-- Shown while the manifest / first tiles load. JS: add .is-hidden when ready. -->
+      <div id="loading-overlay" class="loading-overlay">
+        <div class="spinner" aria-hidden="true"></div>
+        <p class="loading-overlay__text">Charting the known world…</p>
+      </div>
+
+      <!-- Non-fatal errors (failed tile fetch, bad manifest). JS: set the text and
+           remove .is-hidden to show. -->
+      <div id="error-banner" class="error-banner is-hidden" role="alert">
+        <span id="error-banner-text" class="error-banner__text">Something went wrong.</span>
+        <button id="error-banner-dismiss" class="btn btn--icon error-banner__dismiss" type="button" aria-label="Dismiss">×</button>
+      </div>
+    </main>
+
+    <!-- ================= Sidebar ================= -->
+    <!-- JS: toggle .sidebar--collapsed to hide/show. On narrow screens CSS turns
+         this into a bottom sheet; the same class controls both. -->
+    <aside id="sidebar" class="sidebar" aria-label="Map controls">
+
+      <!-- ---- Marker search ---- -->
+      <div class="sidebar-search">
+        <!-- JS: filter markers by name on input; render matches into #search-results
+             (li.search-result via #tpl-search-result), pan to marker on click. -->
+        <input id="marker-search" class="sidebar-search__input" type="search"
+               placeholder="Search the known world…" aria-label="Search markers"
+               autocomplete="off">
+        <ul id="search-results" class="search-results is-hidden"></ul>
+      </div>
+
+      <!-- ---- Map overlays (whole-map layers) ---- -->
+      <details class="sidebar-section" open>
+        <summary class="sidebar-section__title">Map Layers</summary>
+        <ul id="overlay-toggle-list" class="toggle-list">
+          <!-- Static overlay rows. JS: read data-layer, bind change events, and
+               disable inputs for layers absent from the manifest. -->
+          <li class="toggle-row">
+            <label class="switch">
+              <input type="checkbox" class="switch__input" data-layer="territory">
+              <span class="switch__track" aria-hidden="true"></span>
+              <span class="switch__label">Territorial control</span>
+            </label>
+          </li>
+          <li class="toggle-row">
+            <label class="switch">
+              <input type="checkbox" class="switch__input" data-layer="culture">
+              <span class="switch__track" aria-hidden="true"></span>
+              <span class="switch__label">Cultures</span>
+            </label>
+          </li>
+          <li class="toggle-row">
+            <label class="switch">
+              <input type="checkbox" class="switch__input" data-layer="religion">
+              <span class="switch__track" aria-hidden="true"></span>
+              <span class="switch__label">Religions</span>
+            </label>
+          </li>
+        </ul>
+      </details>
+
+      <!-- ---- Marker icon categories ---- -->
+      <details class="sidebar-section" open>
+        <summary class="sidebar-section__title">Icons</summary>
+
+        <div class="bulk-actions" role="group" aria-label="Toggle all icon categories">
+          <!-- JS: check/uncheck every input in #icon-toggle-list -->
+          <button id="icons-show-all" class="btn btn--ghost bulk-actions__btn" type="button">Show all</button>
+          <button id="icons-hide-all" class="btn btn--ghost bulk-actions__btn" type="button">Hide all</button>
+        </div>
+
+        <!-- JS: clear this list and repopulate from markers.json categories using
+             template #tpl-icon-toggle (set data-category, icon src, label, count).
+             The row below is a markup reference. -->
+        <ul id="icon-toggle-list" class="toggle-list">
+          <li class="toggle-row">
+            <label class="switch">
+              <input type="checkbox" class="switch__input" data-category="settlements" checked>
+              <span class="switch__track" aria-hidden="true"></span>
+              <img class="switch__icon" src="assets/icons/city.svg" alt="" width="16" height="16">
+              <span class="switch__label">Settlements</span>
+              <span class="switch__count">3</span>
+            </label>
+          </li>
+        </ul>
+      </details>
+
+      <!-- ---- Player annotations ---- -->
+      <details class="sidebar-section" open>
+        <summary class="sidebar-section__title">Your Notes</summary>
+        <div id="annotation-tools" class="annotation-tools">
+          <p class="hint">Marks live in this browser only — they aren’t shared or saved to the map.</p>
+
+          <!-- Tool mode buttons. JS: set .is-active + aria-pressed on the engaged
+               tool and switch map pointer behavior (place icon / place note / pan). -->
+          <div class="annotation-tools__modes" role="group" aria-label="Annotation tools">
+            <button id="tool-place-icon" class="btn tool-btn" type="button" data-tool="icon" aria-pressed="false">
+              Place icon
+            </button>
+            <button id="tool-place-note" class="btn tool-btn" type="button" data-tool="note" aria-pressed="false">
+              Place note
+            </button>
+          </div>
+
+          <!-- Icon palette for the "place icon" tool. JS: set .is-selected on the chosen swatch. -->
+          <div id="annotation-icon-palette" class="icon-palette" role="group" aria-label="Annotation icons">
+            <button class="icon-palette__swatch" type="button" data-icon="flag" title="Flag">
+              <img src="assets/icons/flag.svg" alt="Flag" width="18" height="18">
+            </button>
+            <button class="icon-palette__swatch" type="button" data-icon="skull" title="Danger">
+              <img src="assets/icons/skull.svg" alt="Danger" width="18" height="18">
+            </button>
+            <button class="icon-palette__swatch" type="button" data-icon="chest" title="Treasure">
+              <img src="assets/icons/chest.svg" alt="Treasure" width="18" height="18">
+            </button>
+            <button class="icon-palette__swatch" type="button" data-icon="question" title="Mystery">
+              <img src="assets/icons/question.svg" alt="Mystery" width="18" height="18">
+            </button>
+          </div>
+
+          <button id="annotation-clear" class="btn btn--danger annotation-tools__clear" type="button">
+            Clear all my marks
+          </button>
+        </div>
+      </details>
+
+      <!-- ---- Legend ---- -->
+      <details class="sidebar-section">
+        <summary class="sidebar-section__title">Legend</summary>
+        <!-- JS: optionally rebuild from markers.json categories; static fallback below. -->
+        <ul id="legend-list" class="legend-list">
+          <li class="legend-list__item">
+            <img src="assets/icons/city.svg" alt="" width="16" height="16">
+            <span>Settlement</span>
+          </li>
+          <li class="legend-list__item">
+            <img src="assets/icons/landmark.svg" alt="" width="16" height="16">
+            <span>Landmark</span>
+          </li>
+          <li class="legend-list__item">
+            <img src="assets/icons/skull.svg" alt="" width="16" height="16">
+            <span>Hazard</span>
+          </li>
+        </ul>
+      </details>
+    </aside>
+  </div>
+
+  <!-- ================= Templates (cloned by JS) ================= -->
+
+  <!-- Marker popup: clone, fill .popup__title / .popup__body, append to #popup-layer,
+       position via style.left/top in viewport px. -->
+  <template id="tpl-marker-popup">
+    <div class="popup popup--marker">
+      <button class="popup__close btn btn--icon" type="button" aria-label="Close">×</button>
+      <h3 class="popup__title"></h3>
+      <p class="popup__body"></p>
+    </div>
+  </template>
+
+  <!-- Player note popup: same flow, but editable. JS: read .popup__textarea on save,
+       wire .popup__save / .popup__delete. -->
+  <template id="tpl-note-popup">
+    <div class="popup popup--note">
+      <button class="popup__close btn btn--icon" type="button" aria-label="Close">×</button>
+      <h3 class="popup__title">Your note</h3>
+      <textarea class="popup__textarea" rows="4" maxlength="500" placeholder="Write a note…"></textarea>
+      <div class="popup__actions">
+        <button class="popup__save btn btn--primary" type="button">Save</button>
+        <button class="popup__delete btn btn--danger" type="button">Delete</button>
+      </div>
+    </div>
+  </template>
+
+  <!-- Icon-category toggle row: clone per markers.json category. JS: set data-category
+       on the input, icon src, label text, and count. -->
+  <template id="tpl-icon-toggle">
+    <li class="toggle-row">
+      <label class="switch">
+        <input type="checkbox" class="switch__input" data-category="" checked>
+        <span class="switch__track" aria-hidden="true"></span>
+        <img class="switch__icon" src="" alt="" width="16" height="16">
+        <span class="switch__label"></span>
+        <span class="switch__count"></span>
+      </label>
+    </li>
+  </template>
+
+  <!-- Search result row: clone per match into #search-results. JS: set data-marker-id,
+       icon src, and name; clicking should pan/zoom to the marker. -->
+  <template id="tpl-search-result">
+    <li class="search-result">
+      <button class="search-result__btn" type="button" data-marker-id="">
+        <img class="search-result__icon" src="" alt="" width="16" height="16">
+        <span class="search-result__name"></span>
+      </button>
+    </li>
+  </template>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
