@@ -30,9 +30,12 @@
  *     depending on the active tool (ui.js owns tool state)
  */
 
-import { OVERLAY_ALPHA } from "./config.js";
+import { MIN_SCALE, MAX_SCALE, OVERLAY_ALPHA } from "./config.js";
 import { getTileImage } from "./tile-manager.js";
 import { isLayerVisible } from "./layers.js";
+import { hitTest as markerHitTest } from "./markers.js";
+import { addAnnotation, hitTest as annotationHitTest } from "./annotations.js";
+import { getUIState, openMarkerPopup, openNotePopup, closePopups } from "./ui.js";
 
 
 /**
@@ -55,6 +58,14 @@ import { isLayerVisible } from "./layers.js";
  * @property {() => void} resetView         back to tile (0,0) at scale 1
  */
 
+
+/** Radius of the round badge markers/annotations are drawn in. */
+const BADGE_RADIUS = 12;
+/** Pointer movement (px) below which a press counts as a click, not a drag */
+const CLICK_SLOP = 5;
+/** Zoom factor per wheel notch. */
+const WHEEL_STEP = 1.1;
+
 /**
  * Create the renderer bound to a canvas.
  * @param {HTMLCanvasElement} canvas  #map-canvas
@@ -62,8 +73,11 @@ import { isLayerVisible } from "./layers.js";
  * @returns {Renderer}
  */
 export function createRenderer(canvas, manifest) {
+
+  // Grab the readout element 
+  const coordsE1 = document.getElementById("coords-readout");
+
   // Remember a ResizeObserver on the canvas parent + resize() keeps it crisp.
-  
   const ctx = canvas.getContext("2d");
   const tileSize = manifest.tileSize;
 
@@ -147,4 +161,144 @@ export function createRenderer(canvas, manifest) {
   resize();
 
   return { view, render, resize, worldToScreen, screenToWorld };
+
+  // zoom
+  function zoomBy(factor, cx = canvas.clientWidth / 2, cy = canvas.clientHeight / 2) {
+    // Zoom to cursor, the point under (cx, cy), but be the same screen position after scale change.
+    const before = screenToWorld(cx, cy);
+    view.scale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, view.scale * factor));
+    const after = screenToWorld(cx, cy);
+    view.x += before.x - after.x;
+    view.y += before.y - after.y;
+    render();
+  }
+
+  function resetView() {
+    view.x = tileSize / 2;
+    view.y = tileSize / 2;
+    view.scale = 1;
+    render();
+  }
+
+
+  function canvasPoint(e) {
+    const rect = canvas.getBoundingClientRect();
+    return { x: e.clientX - rect.left, y: e.clientY -rect.top };
+  }
+
+  // Set up pointers
+  const pointers = new Map();
+  let dragDistance = 0;
+  let lastPinchDist = null;
+
+  canvas.addEventListener("pointerdown", (e) => {
+    // Keep receiving move/up for this pointer even if it leaves the canvas.
+    try{
+      canvas.setPointerCapture(e.pointerId);
+    } catch {}
+    pointers.set(e.pointerId, canvasPoint(e));
+    dragDistance = 0;
+    if (pointers.size === 1) document.body.classList.add("is-panning");
+    closePopups();
+  });
+
+  canvas.addEventListener("pointermove", (e) => {
+    const cur = canvasPoint(e);
+
+    // Coordinate readout (World coordinates that are under the cursor).
+    const wpt = screenToWorld(cur.x, cur.y);
+    coordsE1.textContent = `${Math.round(wpt.x)}, ${Math.round(wpt.y)}`;
+
+    if (!pointers.has(e.pointerId)) return; // We're hovering, not holding click
+
+    const prev = pointers.get(e.pointerId);
+    pointers.set(e.pointerIdm, cur); 
+
+    if (pointers.size === 1) {
+      // Drag-to-pan. Screen moves right, world center moves left
+      const dx = cur.x - prev.x;
+      const dy = cur.sy - prev.y;
+      dragDistance += Math.abs(dx) + Math.abs(dy);
+      view.x -= dx / view.scale;
+      view.y -= dy / view.scale;
+      render();
+    } else if (pointers.size === 2) {
+      // Pinch Zoom scale by the ration of two finger distance.
+      const [p1, p2] = [...pointers.values()];
+      const dist = Math.hypot(p1.x - p2.x, p1.y - p2.y);
+      const mid = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
+      if (lastPinchDist !== null && lastPinchDist > 0) {
+        zoomBy(dist / lastPinchDist, mid.x, mid.y);
+      }
+      lastPinchDist = dist; 
+      dragDistance = Infinity; // A pinch does not count as a click 
+    }
+  });
+
+  // This just handles ending a pointer event for when we stop holding click
+  function endPointer(e) {
+    pointers.delete(e.pointerId);
+    if (pointers.size < 2) lastPinchDist = null;
+    if (pointers.size === 0) {
+      document.body.classList.remove("is-panning");
+      if (e.type == "pointerup" && dragDistance < CLICK_SLOP) {
+        const p = canvasPoint(e);
+        handClick(p.x, p.y);
+      }
+    }
+  }
+
+  // Events that would cause us to end a click
+  canvas.addEventListener("pointerup", endPointer);
+  canvas.addEventListener("pointercancel", endPointer);
+
+  // Wheel zoom. { passive: false } 
+  canvas.addEventListener("wheel", (e) => {
+    e.preventDefault(); // Don't scroll the actual page, we're trying to zoom instead
+    const p = canvasPoint(e);
+    zoomBy(e.deltaY < 0 ? WHEEL_STEP : 1 / WHEEL_STEP, p.x, p.y);
+  });
+
+  // Click handling on the map
+  function handleClick(sx, sy) {
+    const wpt = screenToWorld(sx, sy);
+    const ui = getUIState();
+
+    // Placement tools (Icons and notes)
+    if (ui.activeTool === "icon" || ui.activeTool == "note") {
+      const annotation = {
+        id: crypto.randomUUID(),
+        kind: ui.activeTool,
+        icon: ui.activeTool === "icon" ? ui.selectedIcon : "question",
+        x: wpt.x,
+        y: wpt.y,
+        text: "",
+      };
+      addAnnotation(annotation);
+      if (ui.activeTool === "note") openNotePopup(annotation, sx, sy);
+      render();
+      return;
+    }
+
+
+    // Normal click
+    const radius = (BADGE_RADIUS + 4) / view.scale;
+    const annotation = annotationHitTest(wpt.x, wpt.y, radius);
+    if (annotation) {
+      const p = worldToScreen(annotation.x, annotation.y);
+      openNotePopup(annotation, p.x, p.y);
+      return;
+    }
+    const marker = markerHitTest(wpt.x, wpt.y, radius);
+    if (marker) {
+      const p = worldToScreen(marker.x, marker.y);
+      openMarkerPopup(marker, p.x, p.y);
+    }
+  }
+
+
+
+  // Left off on step 5 of document 02-pan-zoom
+
+
 }
