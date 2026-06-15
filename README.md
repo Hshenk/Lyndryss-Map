@@ -30,6 +30,7 @@ data/
   manifest.json     which tiles exist, per layer (the reveal model)
   markers.json      GM marker data
   SCHEMA.md         data format + coordinate system reference
+docs/guide/         milestone-by-milestone guide to implementing the JS
 tiles/{layer}/      revealed tile PNGs, named {x}_{y}.png
 assets/icons/       UI and marker SVGs
 tools/slice-map.py  master-map → tiles slicer (stub)
@@ -52,6 +53,12 @@ folder `/ (root)`.
 **Secrecy note:** this is a public repo — anything committed is visible to
 players, including history. The full master map lives in `resources/`, which
 is gitignored. Only ever commit individual revealed tiles.
+
+## Implementation guide
+
+The JavaScript in `js/` is stubs with documented interfaces; the working
+implementation is built by following [docs/guide/00-overview.md](docs/guide/00-overview.md)
+milestone by milestone. Each milestone ends with a runnable checkpoint.
 
 ## Local development
 

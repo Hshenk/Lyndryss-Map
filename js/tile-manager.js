@@ -9,6 +9,11 @@
  *     unrevealed and simply isn't drawn (the dark page background shows).
  */
 
+import { MANIFEST_URL, DEFAULT_TILE_SIZE, tileUrl } from "./config.js";
+let manifest = null
+const tileIndex = new Map();
+const imageCache = new Map();
+
 /**
  * @typedef {Object} Manifest
  * @property {number} version    bump on every GM push
@@ -25,10 +30,36 @@
  * #map-version / #map-updated in the header.
  * @returns {Promise<Manifest>}
  */
+
 export async function loadManifest() {
-  // TODO
-  throw new Error("not implemented");
+  
+  const response = await fetch(MANIFEST_URL, { cache: "no-cache" });
+  if (!response.ok) {
+    throw new Error(`Could not load manifest: HTTP ${response.status}`);
+  }
+  manifest = await response.json();
+
+  manifest.tileSize = manifest.tileSize ?? DEFAULT_TILE_SIZE;
+  manifest.layers = manifest.layers ?? ["base"];
+  manifest.tiles = manifest.tiles ?? {};
+
+  // Build the fast lookup index
+  tileIndex.clear();
+  for (const layer of manifest.layers) {
+    const coords = manifest.tiles[layer] ?? [];
+
+    // Deconstruct our coordinates 
+    tileIndex.set(layer, new Set(coords.map(([x, y]) => `${x},${y}`)));
+  }
+
+  return manifest;
 }
+
+
+export function getManifest() {
+  return manifest;
+}
+
 
 /**
  * Does tile (x, y) exist on `layer` per the loaded manifest?
@@ -40,8 +71,8 @@ export async function loadManifest() {
  * @returns {boolean}
  */
 export function hasTile(layer, x, y) {
-  // TODO
-  return false;
+  const set = tileIndex.get(layer);
+  return set !== undefined && set.has(`${x},${y}`);
 }
 
 /**
@@ -63,6 +94,24 @@ export function hasTile(layer, x, y) {
  * @returns {HTMLImageElement | null}
  */
 export function getTileImage(layer, x, y, onReady) {
-  // TODO: check manifest via hasTile() first; build URL with tileUrl() from config.js
-  return null;
+  if (!hasTile(layer, x, y)) return null;
+
+  const key = `${layer}/${x},${y}`;
+  let entry = imageCache.get(key);
+
+  if (entry === undefined) {
+    const img = new Image();
+    entry = { img, loaded: false };
+    imageCache.set(key, entry);
+
+    img.onload = () => {
+      entry.loaded = true;
+      if (onReady) onReady();
+    };
+
+    // check for potential 404 
+    img.onerror = () => {};
+    img.src = tileUrl(layer, x, y);
+  }
+  return entry.loaded ? entry.img : null;
 }
