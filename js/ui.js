@@ -30,25 +30,74 @@
  *   #map-updated / #map-version → fill from manifest
  */
 
+
+import { ZOOM_STEP } from "./config.js";
+
 /**
  * @typedef {Object} UIState
  * @property {"pan" | "icon" | "note"} activeTool
  * @property {string} selectedIcon  data-icon of the selected palette swatch
  */
 
+
+let renderer = null;
+const state = {
+  activeTool: "pan", 
+  selectedIcon: "flag",
+};
+
+
+/** @returns {UIState} current tool state (renderer click handling reads this) */
+export function getUIState() {
+  return { ...state };
+}
+
+
+
 /**
  * Bind every control. Call once from main.js after data + renderer exist.
  * @param {import("./renderer.js").Renderer} renderer
  */
-export function initUI(renderer) {
-  // TODO
+export function initUI(r) {
+  renderer = r;
+  bindSidebarToggle();
+  bindZoomControls();
+  bindErrorDismiss();
 }
 
-/** @returns {UIState} current tool state (renderer click handling reads this) */
-export function getUIState() {
-  // TODO
-  return { activeTool: "pan", selectedIcon: "flag" };
+
+function bindSidebarToggle() {
+  const button = document.getElementById("sidebar-toggle");
+  const sidebar = document.getElementById("sidebar");
+  button.addEventListener("click", () => {
+    const collapsed = sidebar.classList.toggle("sidebar--collapsed");
+    button.setAttribute("aria-expanded", String(!collapsed));
+  });
 }
+
+// When we try to zoom the webpage, send that instead to our zoom function
+function bindZoomControls(){
+  document.getElementById("zoom-in").addEventListener("click", () => {
+    renderer.zoomBy(ZOOM_STEP);
+  });
+  document.getElementById("zoom-out").addEventListener("click", () => {
+    renderer.zoomBy(1 / ZOOM_STEP);
+  });
+  document.getElementById("zoom-reset").addEventListener("click", () => {
+    renderer.resetView();
+  });
+}
+
+function popupLayer() {
+  return document.getElementById("popup-layer");
+}
+
+/** Close any open popup. */
+export function closePopups() {
+  popupLayer().replaceChildren();
+}
+
+
 
 /**
  * Open a marker popup near a screen point (clamp so it stays in-viewport).
@@ -71,9 +120,13 @@ export function openNotePopup(annotation, sx, sy) {
   //       Delete → annotations.removeAnnotation
 }
 
-/** Close any open popup. */
-export function closePopups() {
-  // TODO
+
+
+
+function bindErrorDismiss() {
+  document.getElementById("error-banner-dismiss").addEventListener("click", () => {
+    document.getElementById("error-banner").classList.add("is-hidden");
+  });
 }
 
 /**
@@ -81,5 +134,8 @@ export function closePopups() {
  * @param {string} message
  */
 export function showError(message) {
-  // TODO: set #error-banner-text, remove .is-hidden from #error-banner
+  document.getElementById("error-banner-text").textContent = message;
+  document.getElementById("error-banner").classList.remove("is-hidden");
 }
+
+

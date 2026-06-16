@@ -75,7 +75,7 @@ const WHEEL_STEP = 1.1;
 export function createRenderer(canvas, manifest) {
 
   // Grab the readout element 
-  const coordsE1 = document.getElementById("coords-readout");
+  const coordsEl = document.getElementById("coords-readout");
 
   // Remember a ResizeObserver on the canvas parent + resize() keeps it crisp.
   const ctx = canvas.getContext("2d");
@@ -160,7 +160,7 @@ export function createRenderer(canvas, manifest) {
   new ResizeObserver(resize).observe(canvas.parentElement);
   resize();
 
-  return { view, render, resize, worldToScreen, screenToWorld };
+  
 
   // zoom
   function zoomBy(factor, cx = canvas.clientWidth / 2, cy = canvas.clientHeight / 2) {
@@ -207,17 +207,17 @@ export function createRenderer(canvas, manifest) {
 
     // Coordinate readout (World coordinates that are under the cursor).
     const wpt = screenToWorld(cur.x, cur.y);
-    coordsE1.textContent = `${Math.round(wpt.x)}, ${Math.round(wpt.y)}`;
+    coordsEl.textContent = `${Math.round(wpt.x)}, ${Math.round(wpt.y)}`;
 
     if (!pointers.has(e.pointerId)) return; // We're hovering, not holding click
 
     const prev = pointers.get(e.pointerId);
-    pointers.set(e.pointerIdm, cur); 
+    pointers.set(e.pointerId, cur); 
 
     if (pointers.size === 1) {
       // Drag-to-pan. Screen moves right, world center moves left
       const dx = cur.x - prev.x;
-      const dy = cur.sy - prev.y;
+      const dy = cur.y - prev.y;
       dragDistance += Math.abs(dx) + Math.abs(dy);
       view.x -= dx / view.scale;
       view.y -= dy / view.scale;
@@ -241,9 +241,9 @@ export function createRenderer(canvas, manifest) {
     if (pointers.size < 2) lastPinchDist = null;
     if (pointers.size === 0) {
       document.body.classList.remove("is-panning");
-      if (e.type == "pointerup" && dragDistance < CLICK_SLOP) {
+      if (e.type === "pointerup" && dragDistance < CLICK_SLOP) {
         const p = canvasPoint(e);
-        handClick(p.x, p.y);
+        handleClick(p.x, p.y);
       }
     }
   }
@@ -257,7 +257,7 @@ export function createRenderer(canvas, manifest) {
     e.preventDefault(); // Don't scroll the actual page, we're trying to zoom instead
     const p = canvasPoint(e);
     zoomBy(e.deltaY < 0 ? WHEEL_STEP : 1 / WHEEL_STEP, p.x, p.y);
-  });
+  }, {passive: false });
 
   // Click handling on the map
   function handleClick(sx, sy) {
@@ -265,7 +265,7 @@ export function createRenderer(canvas, manifest) {
     const ui = getUIState();
 
     // Placement tools (Icons and notes)
-    if (ui.activeTool === "icon" || ui.activeTool == "note") {
+    if (ui.activeTool === "icon" || ui.activeTool === "note") {
       const annotation = {
         id: crypto.randomUUID(),
         kind: ui.activeTool,
@@ -296,9 +296,5 @@ export function createRenderer(canvas, manifest) {
     }
   }
 
-
-
-  // Left off on step 5 of document 02-pan-zoom
-
-
+  return { view, render, resize, worldToScreen, screenToWorld, zoomBy, resetView };
 }
