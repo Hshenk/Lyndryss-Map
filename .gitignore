@@ -1,6 +1,7 @@
 # GM-private master map assets — never publish these to the public repo.
 # Only sliced, revealed tiles under tiles/ should ever be committed.
 resources/
+.claude/
 
 # OS junk
 Thumbs.db

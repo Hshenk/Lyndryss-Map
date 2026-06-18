@@ -32,14 +32,16 @@
 
 
 import { ZOOM_STEP } from "./config.js";
+import { getManifest } from "./tile-manager.js";
+import { setLayerVisible, setCategoryVisible, isCategoryVisible } from "./layers.js";
+import { getCategories, getCategoryCount, getCategoryIcon, searchMarkers } from "./markers.js";
+
 
 /**
  * @typedef {Object} UIState
  * @property {"pan" | "icon" | "note"} activeTool
  * @property {string} selectedIcon  data-icon of the selected palette swatch
  */
-
-
 let renderer = null;
 const state = {
   activeTool: "pan", 
@@ -62,6 +64,10 @@ export function initUI(r) {
   renderer = r;
   bindSidebarToggle();
   bindZoomControls();
+  bindOverlayToggles();
+  buildIconToggles();
+  bindBulkButtons();
+  bindSearch();
   bindErrorDismiss();
 }
 
@@ -98,6 +104,16 @@ export function closePopups() {
 }
 
 
+function positionPopup(popup, sx, sy){
+  const bounds = popupLayer().getBoundingClientRect();
+  const w = popup.offsetWidth;
+  const h = popup.offsetHeight;
+  const left = Math.min(Math.max(8, sx + 16), bounds.width - w - 8);
+  const top = Math.min(Math.max(8, sy - h / 2), bounds.height - h - 8);
+  popup.style.left = `${left}px`;
+  popup.style.top = `${top}px`;
+}
+
 
 /**
  * Open a marker popup near a screen point (clamp so it stays in-viewport).
@@ -106,7 +122,14 @@ export function closePopups() {
  * @param {number} sy screen px
  */
 export function openMarkerPopup(marker, sx, sy) {
-  // TODO: clone #tpl-marker-popup, fill, append to #popup-layer
+  closePopups();
+  const fragment = document.getElementById("tpl-marker-popup").content.cloneNode(true);
+  const popup = fragment.querySelector(".popup");
+  popup.querySelector(".popup__title").textContent = marker.name;
+  popup.querySelector(".popup__body").textContent = marker.note ?? "";
+  popup.querySelector(".popup__close").addEventListener("click", closePopups);
+  popupLayer().append(popup);
+  positionPopup(popup, sx, sy);
 }
 
 /**
@@ -138,4 +161,88 @@ export function showError(message) {
   document.getElementById("error-banner").classList.remove("is-hidden");
 }
 
+function bindOverlayToggles() {
+  const manifest = getManifest();
+  const inputs = document.querySelectorAll("#overlay-toggle-list .switch__input");
 
+  for (const input of inputs) {
+    const layer = input.dataset.layer;
+    // Grey out overlays that do not yet have tiles
+    const tiles = manifest.tiles[layer] ?? [];
+    input.disable = tiles.length === 0;
+    input.addEventListener("change", () => {
+      setLayerVisible(layer, input.checked);
+    });
+  }
+}
+
+function buildIconToggles() {
+  const list = document.getElementById("icon-toggle-list");
+  const template = document.getElementById("tpl-icon-toggle");
+  list.replaceChildren();
+
+  for (const category of getCategories()) {
+    const row = template.content.cloneNode(true);
+    const input = row.querySelector(".switch__input");
+    input.dataset.category = category.id;
+    input.checked = isCategoryVisible(category.id);
+    row.querySelector(".switch__icon").src = category.icon;
+    row.querySelector(".switch__label").textContent = category.name;
+    row.querySelector(".switch__count").textContent = getCategoryCount(category.id);
+
+    input.addEventListener("change", () =>{
+      setCategoryVisible(category.id, input.checked);
+    });
+    list.append(row);
+  }
+}
+
+function bindBulkButtons() {
+  const setAll = (checked) => {
+    const inputs = document.querySelectorAll("#icon-toggle-list .switch__input");
+    for (const input of inputs) {
+      input.checked = checked;
+      setCategoryVisible(input.dataset.category, checked);
+    }
+  };
+  document.getElementById("icons-show-all").addEventListener("click", () => setAll(true));
+  document.getElementById("icons-hide-all").addEventListener("click", () => setAll(false));
+}
+
+
+// Search functions
+function bindSearch() {
+  const input = document.getElementById("marker-search");
+  const resultsList = document.getElementById("search-results");
+  const template = document.getElementById("tpl-search-result");
+
+  input.addEventListener("input", () => {
+    const matches = searchMarkers(input.value);
+    resultsList.replaceChildren();
+    resultsList.classList.toggle("is-hidden", matches.length === 0);
+
+    for (const marker of matches) {
+      const row = template.content.cloneNode(true);
+      const button = row.querySelector(".search-result__btn");
+      button.dataset.markerId = marker.id;
+      row.querySelector(".search-result__icon").src = getCategoryIcon(marker.category);
+      row.querySelector(".search-result__name").textContent = marker.name;
+
+      button.addEventListener("click", () => {
+        renderer.view.x = marker.x;
+        renderer.view.y = marker.y;
+        if (renderer.view.scale < 1) renderer.view.scale = 1;
+        renderer.render();
+        resultsList.classList.add("is-hidden");
+        input.value = "";
+      });
+      resultsList.append(row);
+    }
+  });
+
+
+  // Hide the dropdown on Escape
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") resultsList.classList.add("is-hidden")
+  });
+}

@@ -6,6 +6,19 @@
  * Optionally persist to LAYER_PREFS_STORAGE_KEY so choices survive refresh.
  */
 
+
+const visibleOverlays = new Set();
+const hiddenCategories = new Set();
+
+const listeners = [];
+
+
+function notify() {
+  for (const callback of listeners) callback();
+}
+
+
+
 /**
  * Is the given overlay layer (e.g. "territory") currently visible?
  * "base" should always report true.
@@ -13,8 +26,7 @@
  * @returns {boolean}
  */
 export function isLayerVisible(layerId) {
-  // TODO
-  return layerId === "base";
+  return layerId === "base" || visibleOverlays.has(layerId);
 }
 
 /**
@@ -23,8 +35,17 @@ export function isLayerVisible(layerId) {
  * @param {boolean} visible
  */
 export function setLayerVisible(layerId, visible) {
-  // TODO: update state, then notify (see onLayersChanged)
+  if (layerId === "base") return; // Can't turn off the map itself
+  if (visible) visibleOverlays.add(layerId);
+  else visibleOverlays.delete(layerId);
+  notify();
 }
+
+
+export function getVisibleLayerIds() {
+  return [...visibleOverlays];
+}
+
 
 /**
  * Is a marker category (e.g. "settlements") currently visible?
@@ -32,8 +53,7 @@ export function setLayerVisible(layerId, visible) {
  * @returns {boolean}
  */
 export function isCategoryVisible(categoryId) {
-  // TODO
-  return true;
+  return !hiddenCategories.has(categoryId);
 }
 
 /**
@@ -42,7 +62,9 @@ export function isCategoryVisible(categoryId) {
  * @param {boolean} visible
  */
 export function setCategoryVisible(categoryId, visible) {
-  // TODO
+  if (visible) hiddenCategories.delete(categoryId);
+  else hiddenCategories.add(categoryId);
+  notify();
 }
 
 /**
@@ -51,5 +73,5 @@ export function setCategoryVisible(categoryId, visible) {
  * @param {() => void} callback
  */
 export function onLayersChanged(callback) {
-  // TODO
+  listeners.push(callback);
 }

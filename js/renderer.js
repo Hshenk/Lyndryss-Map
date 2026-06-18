@@ -33,8 +33,8 @@
 import { MIN_SCALE, MAX_SCALE, OVERLAY_ALPHA } from "./config.js";
 import { getTileImage } from "./tile-manager.js";
 import { isLayerVisible } from "./layers.js";
-import { hitTest as markerHitTest } from "./markers.js";
-import { addAnnotation, hitTest as annotationHitTest } from "./annotations.js";
+import { getVisibleMarkers, getCategoryIcon, hitTest as markerHitTest } from "./markers.js";
+import { getAnnotations, addAnnotation, hitTest as annotationHitTest } from "./annotations.js";
 import { getUIState, openMarkerPopup, openNotePopup, closePopups } from "./ui.js";
 
 
@@ -61,6 +61,8 @@ import { getUIState, openMarkerPopup, openNotePopup, closePopups } from "./ui.js
 
 /** Radius of the round badge markers/annotations are drawn in. */
 const BADGE_RADIUS = 12;
+const MARKER_RING = "#5aa9e6"; // GM markers
+const ANNOTATION_RING = "#e0b75c"; // Player markers
 /** Pointer movement (px) below which a press counts as a click, not a drag */
 const CLICK_SLOP = 5;
 /** Zoom factor per wheel notch. */
@@ -146,7 +148,51 @@ export function createRenderer(canvas, manifest) {
       }
     }
     ctx.globalAlpha = 1;
+
+    // Markers then annotations
+    for (const m of getVisibleMarkers()) {
+      drawBadge(m.x, m.y, getCategoryIcon(m.category), MARKER_RING);
+    }
+    for (const a of getAnnotations()) {
+      drawBadge(a.x, a.y, `assets/icons/${a.icon}.svg`, ANNOTATION_RING);
+    }
   }
+
+
+  // Badges 
+  const iconCache = new Map();
+
+  function getIcon(path) {
+    let img = iconCache.get(path);
+    if (img === undefined) {
+      img = new Image();
+      img.onload = render;
+      img.src = path;
+      iconCache.set(path, img);
+    }
+    return img.complete && img.naturalWidth > 0 ? img : null;
+  }
+
+  function drawBadge(wx, wy, iconPath,ringColor) {
+    const p = worldToScreen(wx, wy);
+    const r = BADGE_RADIUS;
+    
+    //Skip badges that are off screen
+    if (p.x < -r || p.y < -r || p.x > canvas.clientWidth + r || p.y > canvas.clientHeight + r) {
+      return;
+    }
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, r, 0, Math.PI *2);
+    ctx.fillStyle = "rgba(20, 23, 28, 0.85)";
+    ctx.fill();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = ringColor;
+    ctx.stroke();
+
+    const icon = getIcon(iconPath);
+    if (icon) ctx.drawImage(icon, p.x - 8, p.y -8 , 16, 16);
+  }
+
 
   // Sizing 
   function resize() {
