@@ -35,6 +35,7 @@ import { ZOOM_STEP } from "./config.js";
 import { getManifest } from "./tile-manager.js";
 import { setLayerVisible, setCategoryVisible, isCategoryVisible } from "./layers.js";
 import { getCategories, getCategoryCount, getCategoryIcon, searchMarkers } from "./markers.js";
+import { updateAnnotation, removeAnnotation, clearAnnotations } from "./annotations.js";
 
 
 /**
@@ -54,6 +55,15 @@ export function getUIState() {
   return { ...state };
 }
 
+export function setActiveTool(tool) {
+  state.activeTool = tool;
+  for (const b of document.querySelectorAll(".tool-btn")) {
+    const active = b.dataset.tool === tool;
+    b.classList.toggle("is-active", active);
+    b.setAttribute("aria-pressed", String(active));
+  }
+  document.body.classList.toggle("is-placing", tool !== "pan");
+}
 
 
 /**
@@ -67,6 +77,7 @@ export function initUI(r) {
   bindOverlayToggles();
   buildIconToggles();
   bindBulkButtons();
+  bindAnnotationTools();
   bindSearch();
   bindErrorDismiss();
 }
@@ -139,8 +150,26 @@ export function openMarkerPopup(marker, sx, sy) {
  * @param {number} sy screen px
  */
 export function openNotePopup(annotation, sx, sy) {
-  // TODO: clone #tpl-note-popup; Save → annotations.updateAnnotation,
-  //       Delete → annotations.removeAnnotation
+  closePopups();
+  const fragment = document.getElementById("tpl-note-popup").content.cloneNode(true);
+  const popup = fragment.querySelector(".popup");
+  const textarea = popup.querySelector(".popup__textarea");
+  textarea.value = annotation.text ?? "";
+
+  popup.querySelector(".popup__close").addEventListener("click", closePopups);
+  popup.querySelector(".popup__save").addEventListener("click", () => {
+    updateAnnotation(annotation.id, { text: textarea.value });
+    closePopups();
+  });
+  popup.querySelector(".popup__delete").addEventListener("click", () => {
+    removeAnnotation(annotation.id);
+    closePopups();
+    renderer.render();
+  });
+
+  popupLayer().append(popup);
+  positionPopup(popup, sx, sy);
+  textarea.focus();
 }
 
 
@@ -169,7 +198,7 @@ function bindOverlayToggles() {
     const layer = input.dataset.layer;
     // Grey out overlays that do not yet have tiles
     const tiles = manifest.tiles[layer] ?? [];
-    input.disable = tiles.length === 0;
+    input.disabled = tiles.length === 0;
     input.addEventListener("change", () => {
       setLayerVisible(layer, input.checked);
     });
@@ -210,7 +239,7 @@ function bindBulkButtons() {
 }
 
 
-// Search functions
+// ---------- Search functions ---------- 
 function bindSearch() {
   const input = document.getElementById("marker-search");
   const resultsList = document.getElementById("search-results");
@@ -244,5 +273,49 @@ function bindSearch() {
   // Hide the dropdown on Escape
   input.addEventListener("keydown", (e) => {
     if (e.key === "Escape") resultsList.classList.add("is-hidden")
+  });
+}
+
+// ---------- Annotation functions ---------- 
+function bindAnnotationTools() {
+  const toolButtons = [
+    document.getElementById("tool-place-icon"),
+    document.getElementById("tool-place-note"),
+  ];
+
+  for (const button of toolButtons) {
+    button.addEventListener("click", () => {
+      const tool = button.dataset.tool;
+      setActiveTool(state.activeTool === tool ? "pan" : tool);
+    });
+  }
+
+  // Exit tool with escape
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      setActiveTool("pan");
+      closePopups();
+    }
+  });''
+
+  // Icon palette 
+  const swatches = document.querySelectorAll("#annotation-icon-palette .icon-palette__swatch");
+  for (const swatch of swatches) {
+    swatch.addEventListener("click", () => {
+      state.selectedIcon = swatch.dataset.icon;
+      for (const s of swatches) {
+        s.classList.toggle("is-selected", s === swatch);
+      }
+    });
+  }
+  swatches[0]?.classList.add("is-selected"); // Default matches state.selectedIcon
+
+  // Warning when trying to clear all annotations
+  document.getElementById("annotation-clear").addEventListener("click", () => {
+    if (confirm("Remove all of your markers and notes from the browser?")) {
+      clearAnnotations();
+      closePopups();
+      renderer.render();
+    }
   });
 }

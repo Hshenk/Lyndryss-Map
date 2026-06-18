@@ -35,7 +35,7 @@ import { getTileImage } from "./tile-manager.js";
 import { isLayerVisible } from "./layers.js";
 import { getVisibleMarkers, getCategoryIcon, hitTest as markerHitTest } from "./markers.js";
 import { getAnnotations, addAnnotation, hitTest as annotationHitTest } from "./annotations.js";
-import { getUIState, openMarkerPopup, openNotePopup, closePopups } from "./ui.js";
+import { getUIState, openMarkerPopup, openNotePopup, closePopups, setActiveTool } from "./ui.js";
 
 
 /**
@@ -322,6 +322,7 @@ export function createRenderer(canvas, manifest) {
       };
       addAnnotation(annotation);
       if (ui.activeTool === "note") openNotePopup(annotation, sx, sy);
+      setActiveTool("pan")
       render();
       return;
     }

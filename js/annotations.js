@@ -15,20 +15,40 @@
  * @property {string} [text]    note body, ≤500 chars (textarea enforces it)
  */
 
+
+import { ANNOTATIONS_STORAGE_KEY } from "./config.js";
+
+let annotations = [];
+
+
+function save() {
+  try {
+    localStorage.setItem(ANNOTATIONS_STORAGE_KEY, JSON.stringify(annotations));
+  } catch {
+    // Storage unavailable - annotations won't survive refresh 
+  }
+}
+
+
 /**
  * Load saved annotations from localStorage into module state.
  * Treat parse errors as "no annotations" — don't let bad data brick the app.
  * @returns {Annotation[]}
  */
 export function loadAnnotations() {
-  // TODO
-  return [];
+  try {
+    const raw = localStorage.getItem(ANNOTATIONS_STORAGE_KEY);
+    const parsed = raw === null ? [] : JSON.parse(raw);
+    annotations = Array.isArray(parsed) ? parsed : [];
+  } catch {
+    annotations = [];
+  }
+  return annotations;
 }
 
 /** @returns {Annotation[]} current annotations for the renderer to draw */
 export function getAnnotations() {
-  // TODO
-  return [];
+  return annotations;
 }
 
 /**
@@ -36,7 +56,8 @@ export function getAnnotations() {
  * @param {Annotation} annotation
  */
 export function addAnnotation(annotation) {
-  // TODO: push, save, request redraw
+  annotations.push(annotation);
+  save();
 }
 
 /**
@@ -45,7 +66,11 @@ export function addAnnotation(annotation) {
  * @param {Partial<Annotation>} changes
  */
 export function updateAnnotation(id, changes) {
-  // TODO
+  const target = annotations.find((a) => a.id === id);
+  if (target) {
+    Object.assign(target, changes);
+    save();
+  }
 }
 
 /**
@@ -53,12 +78,14 @@ export function updateAnnotation(id, changes) {
  * @param {string} id
  */
 export function removeAnnotation(id) {
-  // TODO
+  annotations = annotations.filter((a) => a.id !== id);
+  save();
 }
 
 /** Remove everything (the "Clear all my marks" button). Confirm in ui.js first. */
 export function clearAnnotations() {
-  // TODO
+  annotations = [];
+  save();
 }
 
 /**
@@ -70,6 +97,16 @@ export function clearAnnotations() {
  * @returns {Annotation | null}
  */
 export function hitTest(wx, wy, radius) {
-  // TODO
-  return null;
+  let best = null;
+  let bestDistSq = radius * radius;
+  for (const a of annotations) {
+    const dx = a.x - wx;
+    const dy = a.y - wy;
+    const distSq = dx * dx + dy * dy;
+    if (distSq <= bestDistSq) {
+      best = a;
+      bestDistSq = distSq;
+    }
+  }
+  return best;
 }
