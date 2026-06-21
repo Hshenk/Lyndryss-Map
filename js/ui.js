@@ -191,14 +191,11 @@ export function showError(message) {
 }
 
 function bindOverlayToggles() {
-  const manifest = getManifest();
   const inputs = document.querySelectorAll("#overlay-toggle-list .switch__input");
-
   for (const input of inputs) {
     const layer = input.dataset.layer;
-    // Grey out overlays that do not yet have tiles
-    const tiles = manifest.tiles[layer] ?? [];
-    input.disabled = tiles.length === 0;
+    // Disable for now, finish in milestone 03
+    input.disabled = true;
     input.addEventListener("change", () => {
       setLayerVisible(layer, input.checked);
     });

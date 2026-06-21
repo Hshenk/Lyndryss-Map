@@ -34,7 +34,7 @@ import { MIN_SCALE, MAX_SCALE, OVERLAY_ALPHA } from "./config.js";
 import { getVisibleMarkers, getCategoryIcon, hitTest as markerHitTest } from "./markers.js";
 import { getAnnotations, addAnnotation, hitTest as annotationHitTest } from "./annotations.js";
 import { getUIState, openMarkerPopup, openNotePopup, closePopups, setActiveTool } from "./ui.js";
-import { getVisibleCells, forEachRing } from "./map-data.js";
+import { getVisibleCells, forEachRing, cellAt } from "./map-data.js";
 
 
 /**
@@ -92,6 +92,18 @@ export function createRenderer(canvas, manifest) {
       x: (wx - view.x) * view.scale + canvas.clientWidth / 2,
       y: (wy - view.y) * view.scale + canvas.clientHeight / 2,
     }
+  }
+
+  // Build the readout text for a world point
+  function describeAt(wpt, cell) {
+    const xy = `${Math.round(wpt.x)}, ${Math.round(wpt.y)}`;
+    if (!cell) return xy;
+    const p = cell.properties;
+    const biome = manifest.overlays?.biome?.[p.biome]?.name;
+    // State 0 is neutrals
+    const state = p.state ? manifest.overlays?.state?.[p.state]?.name : null;
+    const parts = [biome, state].filter(Boolean);
+    return parts.length ? `${xy} · ${parts.join(" · ")}` : xy;
   }
 
 
@@ -250,7 +262,7 @@ export function createRenderer(canvas, manifest) {
 
     // Coordinate readout (World coordinates that are under the cursor).
     const wpt = screenToWorld(cur.x, cur.y);
-    coordsEl.textContent = `${Math.round(wpt.x)}, ${Math.round(wpt.y)}`;
+    coordsEl.textContent = describeAt(wpt, cellAt(wpt.x, wpt.y));
 
     if (!pointers.has(e.pointerId)) return; // We're hovering, not holding click
 
