@@ -2,6 +2,7 @@
 # Only sliced, revealed tiles under tiles/ should ever be committed.
 resources/
 .claude/
+docs/
 
 # OS junk
 Thumbs.db

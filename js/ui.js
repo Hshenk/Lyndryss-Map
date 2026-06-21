@@ -32,7 +32,7 @@
 
 
 import { ZOOM_STEP } from "./config.js";
-import { getManifest } from "./tile-manager.js";
+import { getManifest } from "./map-data.js";
 import { setLayerVisible, setCategoryVisible, isCategoryVisible } from "./layers.js";
 import { getCategories, getCategoryCount, getCategoryIcon, searchMarkers } from "./markers.js";
 import { updateAnnotation, removeAnnotation, clearAnnotations } from "./annotations.js";

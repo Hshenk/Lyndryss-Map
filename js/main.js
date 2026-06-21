@@ -15,7 +15,7 @@
  */
 
 import { MANIFEST_URL } from "./config.js";
-import { loadManifest, getManifest } from "./tile-manager.js";
+import { loadWorldData, getManifest } from "./map-data.js";
 import { loadMarkers } from "./markers.js";
 import { createRenderer } from "./renderer.js";
 import { loadAnnotations } from "./annotations.js";
@@ -36,7 +36,7 @@ async function init() {
   const loadingOverlay = document.getElementById("loading-overlay");
   try{
     // 1. Data first
-    const manifest = await loadManifest();
+    const manifest = await loadWorldData();
     document.getElementById("map-version").textContent = `v${manifest.version}`;
     document.getElementById("map-updated").textContent = manifest.updated ?? "—";
 

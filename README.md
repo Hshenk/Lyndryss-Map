@@ -31,17 +31,20 @@ data/
   markers.json      GM marker data
   SCHEMA.md         data format + coordinate system reference
 docs/guide/         milestone-by-milestone guide to implementing the JS
+docs/map-pipeline.md  authoring map art in Wonderdraft → grid tiles
 tiles/{layer}/      revealed tile PNGs, named {x}_{y}.png
 assets/icons/       UI and marker SVGs
-tools/slice-map.py  master-map → tiles slicer (stub)
+tools/slice-map.py  region export → grid tiles slicer
 resources/          GM-private master maps — gitignored, never push these
 ```
 
 ## GM publish workflow
 
-1. Slice newly revealed area from the master map and copy the new
-   `{x}_{y}.png` files into `tiles/base/` (see `tools/slice-map.py` and
-   `data/SCHEMA.md` for the coordinate rules).
+1. Slice newly revealed area from a region map and copy the new
+   `{x}_{y}.png` files into `tiles/base/` (see
+   [docs/map-pipeline.md](docs/map-pipeline.md) for the full Wonderdraft →
+   tiles workflow, `tools/slice-map.py` for the slicer, and `data/SCHEMA.md`
+   for the coordinate rules).
 2. Add the new tile coords to `data/manifest.json`, bump `version`, update
    `updated`. Add any new markers to `data/markers.json`.
 3. Commit and push to `main`. GitHub Pages redeploys automatically; players

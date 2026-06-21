@@ -31,11 +31,10 @@
  */
 
 import { MIN_SCALE, MAX_SCALE, OVERLAY_ALPHA } from "./config.js";
-import { getTileImage } from "./tile-manager.js";
-import { isLayerVisible } from "./layers.js";
 import { getVisibleMarkers, getCategoryIcon, hitTest as markerHitTest } from "./markers.js";
 import { getAnnotations, addAnnotation, hitTest as annotationHitTest } from "./annotations.js";
 import { getUIState, openMarkerPopup, openNotePopup, closePopups, setActiveTool } from "./ui.js";
+import { getVisibleCells, forEachRing } from "./map-data.js";
 
 
 /**
@@ -81,12 +80,11 @@ export function createRenderer(canvas, manifest) {
 
   // Remember a ResizeObserver on the canvas parent + resize() keeps it crisp.
   const ctx = canvas.getContext("2d");
-  const tileSize = manifest.tileSize;
 
   // (view.x, view.y) is the world point at the center
   // scale = screen px per world px.
-
-  const view = { x: tileSize / 2, y: tileSize / 2, scale: 1};
+  const home = manifest.home ?? [0,0];
+  const view = { x: home[0], y: home[1], scale: 1};
 
   // returns an x and y adjusted to the client view window and scale
   function worldToScreen(wx, wy) {
@@ -121,41 +119,40 @@ export function createRenderer(canvas, manifest) {
     const h = canvas.clientHeight;
     ctx.clearRect(0, 0, w, h);
 
-    // Find what tiles are in view
+    // The visible rectangle in world px. 
+    const tl = screenToWorld(0, 0);
+    const br = screenToWorld(w, h);
 
-    const topLeft = screenToWorld(0, 0);
-    const bottomRight = screenToWorld(w, h);
-    const x0 = Math.floor(topLeft.x / tileSize);
-    const x1 = Math.floor(bottomRight.x / tileSize);
-    const y0 = Math.floor(topLeft.y / tileSize);
-    const y1 = Math.floor(bottomRight.y / tileSize);
-
-    for (const layer of manifest.layers) {
-      if (!isLayerVisible(layer)) continue;
-      ctx.globalAlpha = layer === "base" ? 1 : OVERLAY_ALPHA;
-
-      for (let ty = y0; ty <= y1; ty++) {
-        for (let tx = x0; tx <= x1; tx++){
-          const img = getTileImage(layer, tx, ty, render);
-          if (img === null) continue;
-          
-          const a = worldToScreen (tx * tileSize, ty * tileSize);
-          const b = worldToScreen ((tx + 1) * tileSize, (ty + 1) * tileSize);
-          const left = Math.round(a.x);
-          const top = Math.round(a.y);
-          ctx.drawImage(img, left, top, Math.round(b.x) - left, Math.round(b.y) - top);
-        }
-      }
+    // --- base map: fill each visible cell with its baked color
+    for (const cell of getVisibleCells(tl.x, tl.y, br.x, br.y)) {
+      ctx.fillStyle = cell.properties.fill;
+      ctx.fill(cellPath(cell));
     }
-    ctx.globalAlpha = 1;
 
-    // Markers then annotations
+    // --- markers then annotations
     for (const m of getVisibleMarkers()) {
       drawBadge(m.x, m.y, getCategoryIcon(m.category), MARKER_RING);
     }
     for (const a of getAnnotations()) {
       drawBadge(a.x, a.y, `assets/icons/${a.icon}.svg`, ANNOTATION_RING);
     }
+  }
+
+  /**
+   * Build a Path2d outline of one cell projected into screen px.
+   * 
+   */
+  function cellPath(cell) {
+    const path = new Path2D();
+    forEachRing(cell.geometry, (ring) => {
+      for (let i = 0; i < ring.length; i++) {
+        const p = worldToScreen(ring[i][0], ring[i][1]);
+        if (i === 0) path.moveTo(p.x, p.y);
+        else path.lineTo(p.x, p.y);
+      }
+      path.closePath();
+    });
+    return path;
   }
 
 
@@ -220,8 +217,8 @@ export function createRenderer(canvas, manifest) {
   }
 
   function resetView() {
-    view.x = tileSize / 2;
-    view.y = tileSize / 2;
+    view.x = home[0];
+    view.y = home[1];
     view.scale = 1;
     render();
   }
