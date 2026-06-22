@@ -93,32 +93,16 @@
 
       <!-- ---- Map overlays (whole-map layers) ---- -->
       <details class="sidebar-section" open>
-        <summary class="sidebar-section__title">Map Layers</summary>
-        <ul id="overlay-toggle-list" class="toggle-list">
-          <!-- Static overlay rows. JS: read data-layer, bind change events, and
-               disable inputs for layers absent from the manifest. -->
-          <li class="toggle-row">
-            <label class="switch">
-              <input type="checkbox" class="switch__input" data-layer="territory">
-              <span class="switch__track" aria-hidden="true"></span>
-              <span class="switch__label">Territorial control</span>
-            </label>
-          </li>
-          <li class="toggle-row">
-            <label class="switch">
-              <input type="checkbox" class="switch__input" data-layer="culture">
-              <span class="switch__track" aria-hidden="true"></span>
-              <span class="switch__label">Cultures</span>
-            </label>
-          </li>
-          <li class="toggle-row">
-            <label class="switch">
-              <input type="checkbox" class="switch__input" data-layer="religion">
-              <span class="switch__track" aria-hidden="true"></span>
-              <span class="switch__label">Religions</span>
-            </label>
-          </li>
-        </ul>
+        <summary class="sidebar-section__title">Map Mode</summary>
+        <!-- Mutually-exclusive map-modes. JS (ui.js bindMapModes): on click, set
+             the active mode and move the .is-active highlight box. "biome" is the
+             default base map and starts active. -->
+        <div id="map-mode-list" class="map-modes" role="group" aria-label="Map mode">
+          <button class="btn map-mode is-active" type="button" data-mode="biome" aria-pressed="true">Biomes</button>
+          <button class="btn map-mode" type="button" data-mode="territory" aria-pressed="false">Territorial control</button>
+          <button class="btn map-mode" type="button" data-mode="culture" aria-pressed="false">Cultures</button>
+          <button class="btn map-mode" type="button" data-mode="religion" aria-pressed="false">Religions</button>
+        </div>
       </details>
 
       <!-- ---- Marker icon categories ---- -->

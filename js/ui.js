@@ -32,8 +32,8 @@
 
 
 import { ZOOM_STEP } from "./config.js";
-import { getManifest } from "./map-data.js";
-import { setLayerVisible, setCategoryVisible, isCategoryVisible } from "./layers.js";
+import { overlayPalette } from "./map-data.js";
+import { setActiveOverlay, getActiveOverlay, setCategoryVisible, isCategoryVisible } from "./layers.js";
 import { getCategories, getCategoryCount, getCategoryIcon, searchMarkers } from "./markers.js";
 import { updateAnnotation, removeAnnotation, clearAnnotations } from "./annotations.js";
 
@@ -74,8 +74,9 @@ export function initUI(r) {
   renderer = r;
   bindSidebarToggle();
   bindZoomControls();
-  bindOverlayToggles();
+  bindMapModes();
   buildIconToggles();
+  buildLegend();
   bindBulkButtons();
   bindAnnotationTools();
   bindSearch();
@@ -190,17 +191,76 @@ export function showError(message) {
   document.getElementById("error-banner").classList.remove("is-hidden");
 }
 
-function bindOverlayToggles() {
-  const inputs = document.querySelectorAll("#overlay-toggle-list .switch__input");
-  for (const input of inputs) {
-    const layer = input.dataset.layer;
-    // Disable for now, finish in milestone 03
-    input.disabled = true;
-    input.addEventListener("change", () => {
-      setLayerVisible(layer, input.checked);
+// function bindOverlayToggles() {
+//   const inputs = document.querySelectorAll("#overlay-toggle-list .switch__input");
+//   for (const input of inputs) {
+//     input.disabled = false;
+//     input.addEventListener("change", () => {
+//       if (input.checked) {
+//         // mutually exclusive map modes
+//         for (const other of inputs) if (other !== input) other.checked = false;
+//         setActiveOverlay(input.dataset.layer);
+//       } else {
+//         setActiveOverlay(null);
+//       }
+//       buildLegend();
+//     });
+//   }
+// }
+
+function bindMapModes() {
+  const buttons = document.querySelectorAll("#map-mode-list .map-mode");
+  for (const btn of buttons) {
+    btn.addEventListener("click", () => {
+      setActiveOverlay(btn.dataset.mode);
+
+      // Move the highlight box to the clicked button (mutually exclusive).
+      for (const b of buttons) {
+        const active = b === btn;
+        b.classList.toggle("is-active", active);
+        b.setAttribute("aria-pressed", String(active));
+      }
+      buildLegend();
     });
   }
 }
+
+/** Fill legend-list with the active map-mode's palette or the marker key if none */
+function buildLegend() {
+  const list = document.getElementById("legend-list");
+  const overlay = getActiveOverlay();
+  if (!overlay || overlay === "biome") return buildMarkerLegend(list);
+
+  const entries = Object.entries(overlayPalette(overlay))
+    .filter(([id]) => id !== "0")
+    .sort((a, b) => a[1].name.localeCompare(b[1].name));
+  
+  list.replaceChildren();
+  for (const [, { name, color }] of entries) {
+    const li = document.createElement("li");
+    li.className = "legend-list__item";
+    li.innerHTML = 
+      `<span style="display:inline-block;width:14px;height:14px;border-radius:3px;` +
+      `background:${color};margin-right:8px;vertical-align:middle"></span><span></span>`;
+    li.lastElementChild.textContent = name;
+    list.appendChild(li)
+  }
+}
+
+
+/** The default legend */
+function buildMarkerLegend(list) {
+  list.replaceChildren();
+  for (const cat of getCategories()) {
+    const li = document.createElement("li");
+    li.className = "legend-list__item";
+    li.innerHTML = `<img src="${cat.icon}" alt="" width="16" height="16"><span></span>`;
+    li.lastElementChild.textContent = cat.name;
+    list.appendChild(li);
+  }
+}
+
+
 
 function buildIconToggles() {
   const list = document.getElementById("icon-toggle-list");

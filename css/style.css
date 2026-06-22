@@ -7,6 +7,7 @@
      .is-hidden                    generic hide (loading overlay, error banner,
                                    search results, …)
      .tool-btn.is-active           engaged annotation tool
+     .map-mode.is-active           current map-mode (Biomes/Territory/Culture/Religion)
      .icon-palette__swatch.is-selected   chosen annotation icon
      body.is-panning / body.is-placing  optional cursor hints over the canvas
    ========================================================================== */
@@ -621,6 +622,26 @@ body.is-placing .map-canvas {
 
 .bulk-actions__btn:hover {
   color: var(--text);
+}
+
+/* ---- Map mode buttons ---- */
+.map-modes {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0 4px;
+}
+
+.map-mode {
+  width: 100%;
+  justify-content: flex-start;
+}
+
+/* The active map-mode: a highlighted box around the current selection. */
+.map-mode.is-active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 /* ---- Annotation tools ---- */

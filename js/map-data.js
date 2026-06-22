@@ -1,5 +1,8 @@
 import { MANIFEST_URL } from "./config.js";
 
+const OVERLAY_ATTRIBUTE = { territory: "state", culture: "culture", religion: "religion" };
+
+
 let manifest = null;
 let cells = [];
 let cellBoxes = [];
@@ -114,3 +117,18 @@ function pointInCell(cell, x, y) {
     return inside;
 }
 
+
+/**
+ * The fill color for a cell in a given map-mode
+ */
+export function overlayColor(cell, overlayId) {
+    const key = OVERLAY_ATTRIBUTE[overlayId];
+    if (!key) return null;
+    const id = cell.properties[key];
+    return manifest.overlays?.[key]?.[id]?.color ?? null;
+}
+
+export function overlayPalette(overlayId) {
+    const key = OVERLAY_ATTRIBUTE[overlayId];
+    return (key && manifest.overlays?.[key]) || {};
+}

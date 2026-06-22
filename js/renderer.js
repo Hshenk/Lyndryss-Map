@@ -30,11 +30,12 @@
  *     depending on the active tool (ui.js owns tool state)
  */
 
-import { MIN_SCALE, MAX_SCALE, OVERLAY_ALPHA } from "./config.js";
+import { MIN_SCALE, MAX_SCALE } from "./config.js";
 import { getVisibleMarkers, getCategoryIcon, hitTest as markerHitTest } from "./markers.js";
 import { getAnnotations, addAnnotation, hitTest as annotationHitTest } from "./annotations.js";
 import { getUIState, openMarkerPopup, openNotePopup, closePopups, setActiveTool } from "./ui.js";
-import { getVisibleCells, forEachRing, cellAt } from "./map-data.js";
+import { getVisibleCells, forEachRing, cellAt, overlayColor } from "./map-data.js";
+import { getActiveOverlay } from "./layers.js";
 
 
 /**
@@ -134,11 +135,21 @@ export function createRenderer(canvas, manifest) {
     // The visible rectangle in world px. 
     const tl = screenToWorld(0, 0);
     const br = screenToWorld(w, h);
+    const overlay = getActiveOverlay(); // Will be null, or "territory/culture/religion"
 
     // --- base map: fill each visible cell with its baked color
     for (const cell of getVisibleCells(tl.x, tl.y, br.x, br.y)) {
-      ctx.fillStyle = cell.properties.fill;
-      ctx.fill(cellPath(cell));
+      const path = cellPath(cell);
+
+      let fill = cell.properties.fill ?? "#444";
+      const isWater = cell.properties.type === "ocean" || cell.properties.type === "lake";
+
+      // Active map-mode
+      if (overlay && !isWater && cellInMode(cell, overlay)) {
+        fill = overlayColor(cell, overlay) ?? fill;
+      }
+      ctx.fillStyle = fill;
+      ctx.fill(path);
     }
 
     // --- markers then annotations
@@ -148,6 +159,11 @@ export function createRenderer(canvas, manifest) {
     for (const a of getAnnotations()) {
       drawBadge(a.x, a.y, `assets/icons/${a.icon}.svg`, ANNOTATION_RING);
     }
+  }
+
+
+  function cellInMode(cell, mode) {
+    return true; // Placeholder for later levels-of-discovery feature 
   }
 
   /**

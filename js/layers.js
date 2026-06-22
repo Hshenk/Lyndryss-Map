@@ -7,9 +7,8 @@
  */
 
 
-const visibleOverlays = new Set();
+let activeOverlay = "biome";  // Default map-mode
 const hiddenCategories = new Set();
-
 const listeners = [];
 
 
@@ -17,6 +16,15 @@ function notify() {
   for (const callback of listeners) callback();
 }
 
+export function getActiveOverlay() {
+  return activeOverlay;
+}
+
+
+export function setActiveOverlay(id) {
+  activeOverlay = id;
+  notify();
+}
 
 
 /**
@@ -26,7 +34,7 @@ function notify() {
  * @returns {boolean}
  */
 export function isLayerVisible(layerId) {
-  return layerId === "base" || visibleOverlays.has(layerId);
+  return activeOverlay === layerId;
 }
 
 /**
@@ -35,15 +43,14 @@ export function isLayerVisible(layerId) {
  * @param {boolean} visible
  */
 export function setLayerVisible(layerId, visible) {
-  if (layerId === "base") return; // Can't turn off the map itself
-  if (visible) visibleOverlays.add(layerId);
-  else visibleOverlays.delete(layerId);
+  if (visible) activeOverlay = layerId; 
+  else if (activeOverlay === layerId) activeOverlay = "biome"; // default to biome map
   notify();
 }
 
 
 export function getVisibleLayerIds() {
-  return [...visibleOverlays];
+  return activeOverlay && activeOverlay !== "biome" ? [activeOverlay] : [];
 }
 
 
