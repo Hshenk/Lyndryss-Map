@@ -11,15 +11,29 @@
  * stops changing).
  */
 
+const DEBOUNCE_MS = 250;
+
+
 /**
  * Parse the current location.hash.
  * @returns {{x: number, y: number, scale: number, layers: string[]} | null}
  *          null when the hash is absent or malformed
  */
 export function readViewFromHash() {
-  // TODO: URLSearchParams works on hash.slice(1)
-  return null;
+  const raw = location.hash.slice(1);
+  if (!raw) return null;
+  const p = new URLSearchParams(raw);
+  const x = Number(p.get("x"));
+  const y = Number(p.get("y"));
+  const scale = Number(p.get("zoom"));
+  if (![x, y, scale].every(Number.isFinite)) return null;
+  const layers = (p.get("layers") ?? "").split(",").filter(Boolean);
+  return { x, y, scale, layers };
 }
+
+
+let timer = null;
+
 
 /**
  * Write view state into the URL hash (debounced, replaceState).
@@ -28,7 +42,15 @@ export function readViewFromHash() {
  * @param {{x: number, y: number, scale: number, layers: string[]}} state
  */
 export function writeViewToHash(state) {
-  // TODO
+  clearTimeout(timer);
+  timer = setTimeout(() => {
+    const p = new URLSearchParams();
+    p.set("zoom", state.scale.toFixed(3));
+    p.set("x", String(Math.round(state.x)));
+    p.set("y", String(Math.round(state.y)));
+    if (state.layers.length) p.set("layers", state.layers.join(","));
+    history.replaceState(null, "", `#${p.toString()}`);
+  }, DEBOUNCE_MS);
 }
 
 /**
@@ -37,5 +59,8 @@ export function writeViewToHash(state) {
  * @param {(state: {x: number, y: number, scale: number, layers: string[]}) => void} callback
  */
 export function onHashChange(callback) {
-  // TODO
+  window.addEventListener("hashchange", () => {
+    const state = readViewFromHash();
+    if (state) callback(state);
+  });
 }

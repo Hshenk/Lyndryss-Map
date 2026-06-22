@@ -19,8 +19,8 @@ import { loadWorldData, getManifest } from "./map-data.js";
 import { loadMarkers } from "./markers.js";
 import { createRenderer } from "./renderer.js";
 import { loadAnnotations } from "./annotations.js";
-import { readViewFromHash, onHashChange } from "./url-state.js";
-import { onLayersChanged, setLayerVisible } from "./layers.js";
+import { readViewFromHash, writeViewToHash, onHashChange } from "./url-state.js";
+import { onLayersChanged, setActiveOverlay, getVisibleLayerIds } from "./layers.js";
 import { initUI, showError } from "./ui.js";
 
 // How often to check for new map pushed to folder (In ms)
@@ -54,7 +54,12 @@ async function init() {
 
     // 3. Renderer
     const canvas = document.getElementById("map-canvas");
-    const renderer = createRenderer(canvas, manifest);
+    const renderer = createRenderer(canvas, manifest, (view) => 
+      writeViewToHash({
+        x: view.x, y: view.y, scale: view.scale,
+        layers: getVisibleLayerIds(),
+      })
+    );
 
     // 4. If the URL carries a view, jump there.
     applyHashState(renderer, readViewFromHash());
@@ -89,11 +94,14 @@ function applyHashState(renderer, state) {
   renderer.view.x = state.x;
   renderer.view.y = state.y;
   renderer.view.scale = state.scale;
-  for (const layerId of state.layers) {
-    setLayerVisible(layerId, true);
-    // Also reflect in the sidebar switch
-    const input = document.querySelector(`.switch__input[data-layer="${layerId}"]`);
-    if (input) input.checked = true;
+
+  // hash carried at most one layer, default to biome
+  const mode = state.layers[0] ?? "biome";
+  setActiveOverlay(mode);
+  for (const btn of document.querySelectorAll("#map-mode-list .map-mode")) {
+    const active = btn.dataset.mode === mode;
+    btn.classList.toggle("is-active", active);
+    btn.setAttribute("aria-pressed", String(active));
   }
   renderer.render();
 }

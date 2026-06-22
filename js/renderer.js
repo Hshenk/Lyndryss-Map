@@ -85,7 +85,7 @@ const ROUTE_STYLES = {
  * @param {import("./tile-manager.js").Manifest} manifest
  * @returns {Renderer}
  */
-export function createRenderer(canvas, manifest) {
+export function createRenderer(canvas, manifest, onViewChange) {
 
   // Grab the readout element 
   const coordsEl = document.getElementById("coords-readout");
@@ -132,6 +132,7 @@ export function createRenderer(canvas, manifest) {
   let frameRequested = false;
 
   function render() {
+    onViewChange?.(view);
     if (frameRequested) return;
     frameRequested = true;
     requestAnimationFrame(draw);

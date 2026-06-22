@@ -12,7 +12,7 @@ export const MARKERS_URL = "data/markers.json";
 
 /** Zoom limits, expressed as scale factors (1 = one world px per screen px). */
 export const MIN_SCALE = 0.1;
-export const MAX_SCALE = 4;
+export const MAX_SCALE = 10;
 
 /** Multiplier applied per zoom-button click / wheel notch. */
 export const ZOOM_STEP = 1.2;
