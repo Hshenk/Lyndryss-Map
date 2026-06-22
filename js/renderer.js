@@ -36,7 +36,7 @@ import { getAnnotations, addAnnotation, hitTest as annotationHitTest } from "./a
 import { getUIState, openMarkerPopup, openNotePopup, closePopups, setActiveTool } from "./ui.js";
 import { getVisibleCells, forEachRing, cellAt, overlayColor,
          getVisibleRivers, getVisibleRoutes, forEachLine } from "./map-data.js";
-import { getActiveOverlay } from "./layers.js";
+import { getActiveOverlay, isRiversVisible, isRoutesVisible } from "./layers.js";
 
 
 
@@ -63,6 +63,9 @@ import { getActiveOverlay } from "./layers.js";
 
 /** Radius of the round badge markers/annotations are drawn in. */
 const BADGE_RADIUS = 12;
+const SETTLEMENT_FILL = "#f4efe3";
+const SETTLEMENT_STROKE = "#20242b";
+const CAPITAL_FILL = "#e8c64a";
 const MARKER_RING = "#5aa9e6"; // GM markers
 const ANNOTATION_RING = "#e0b75c"; // Player markers
 /** Pointer movement (px) below which a press counts as a click, not a drag */
@@ -112,9 +115,20 @@ export function createRenderer(canvas, manifest, onViewChange) {
     if (!cell) return xy;
     const p = cell.properties;
     const biome = manifest.overlays?.biome?.[p.biome]?.name;
+
+    // In heightmap mode, show elevation
+    if (getActiveOverlay() === "heightmap") {
+      const elev = `${Math.round(p.height).toLocaleString()} ft`;
+      return [xy, ...[biome, elev].filter(Boolean)].join(" · ");
+    }
+
+
+
+    const province = p.province ? manifest.overlays?.province?.[p.province]?.name : null;
     // State 0 is neutrals
     const state = p.state ? manifest.overlays?.state?.[p.state]?.name : null;
-    const parts = [biome, state].filter(Boolean);
+
+    const parts = [biome, province, state].filter(Boolean);
     return parts.length ? `${xy} · ${parts.join(" · ")}` : xy;
   }
 
@@ -171,32 +185,41 @@ export function createRenderer(canvas, manifest, onViewChange) {
 
     ctx.strokeStyle = RIVER_COLOR;
     ctx.setLineDash([]);
-    for (const river of getVisibleRivers(tl.x, tl.y, br.x, br.y)) {
-      drawRiver(river);
-    }
+    if (isRiversVisible()) {
+      for (const river of getVisibleRivers(tl.x, tl.y, br.x, br.y)) {
+        drawRiver(river);
+      }
 
-    // Re-cover lakes so rivers passing over them don't show
-    for (const cell of getVisibleCells(tl.x, tl.y, br.x, br.y)) {
-      if (cell.properties.type === "lake") {
-        ctx.fillStyle = cell.properties.fill;
-        ctx.fill(cellPath(cell));
+      // Re-cover lakes so rivers passing over them don't show
+      for (const cell of getVisibleCells(tl.x, tl.y, br.x, br.y)) {
+        if (cell.properties.type === "lake") {
+          ctx.fillStyle = cell.properties.fill;
+          ctx.fill(cellPath(cell));
+        }
       }
     }
 
 
-    for (const route of getVisibleRoutes(tl.x, tl.y, br.x, br.y)) {
-      const s = ROUTE_STYLES[route.properties.group] ?? ROUTE_STYLES.trails;
-      ctx.strokeStyle = s.color;
-      ctx.lineWidth = s.width;
-      ctx.setLineDash(s.dash);
-      ctx.stroke(linePath(route));
+    if (isRoutesVisible()) {
+      for (const route of getVisibleRoutes(tl.x, tl.y, br.x, br.y)) {
+        const s = ROUTE_STYLES[route.properties.group] ?? ROUTE_STYLES.trails;
+        ctx.strokeStyle = s.color;
+        ctx.lineWidth = s.width;
+        ctx.setLineDash(s.dash);
+        ctx.stroke(linePath(route));
+      }
     }
+
     ctx.setLineDash([]); // Reset so marker-ring strokes are not dashed
 
 
     // --- markers then annotations
     for (const m of getVisibleMarkers()) {
-      drawBadge(m.x, m.y, getCategoryIcon(m.category), MARKER_RING);
+      if (m.category === "settlements") {
+        if (settlementVisibleAt(m, view.scale)) drawSettlement(m);
+      } else {
+        drawBadge(m.x, m.y, getCategoryIcon(m.category), MARKER_RING);
+      }
     }
     for (const a of getAnnotations()) {
       drawBadge(a.x, a.y, `assets/icons/${a.icon}.svg`, ANNOTATION_RING);
@@ -250,7 +273,7 @@ export function createRenderer(canvas, manifest, onViewChange) {
         const a = worldToScreen(coords[i][0], coords[i][1]);
         const b = worldToScreen(coords[i + 1][0], coords[i+1][1]);
         const t = n > 2 ? i / (n - 2) : 1; // 0 at source 1 at mouth
-        ctx.lineWidth = sourceW + (mouthW - sourceW) * t;
+        ctx.lineWidth = Math.max(0.4, (sourceW + (mouthW - sourceW) * t) * view.scale);
         ctx.beginPath();
         ctx.moveTo(a.x, a.y);
         ctx.lineTo(b.x, b.y);
@@ -262,7 +285,6 @@ export function createRenderer(canvas, manifest, onViewChange) {
 
   // Badges 
   const iconCache = new Map();
-
   function getIcon(path) {
     let img = iconCache.get(path);
     if (img === undefined) {
@@ -273,6 +295,7 @@ export function createRenderer(canvas, manifest, onViewChange) {
     }
     return img.complete && img.naturalWidth > 0 ? img : null;
   }
+
 
   function drawBadge(wx, wy, iconPath,ringColor) {
     const p = worldToScreen(wx, wy);
@@ -294,6 +317,64 @@ export function createRenderer(canvas, manifest, onViewChange) {
     if (icon) ctx.drawImage(icon, p.x - 8, p.y -8 , 16, 16);
   }
 
+  // --- Burgs ---
+  /** Determine if the settlement is large enough by population to display in current scale */
+  function settlementVisibleAt(m, scale) {
+    if (m.group === "capital") return true;
+    if (scale >= 1.5) return true;
+    if (scale >= 0.7) return m.population >= 2000;
+    return m.population >= 8000;
+  }
+
+  /** Shape by burg type */
+  function settlementShape(m) {
+    switch (m.group) {
+      case "capital": return "square";
+      case "fort":
+      case "trading_post":
+      case "caravanserai" : return "triangle";
+      case "monastery" : return "cross";
+      default: return "circle"; // City, town, village, hamlet
+    }
+  }
+
+  function settlementRadius(m) {
+    return Math.max(2.5, Math.min(7, 2 + Math.sqrt(m.population || 0) / 45));
+  }
+
+  function drawSettlement(m) {
+    const p = worldToScreen(m.x, m.y);
+    const r = settlementRadius(m);
+    if (p.x < -r || p.y < -r || p.x > canvas.clientWidth + r || p.y > canvas.clientHeight + r) return;
+
+    ctx.beginPath();
+    switch (settlementShape(m)) {
+      case "square":
+        ctx.rect(p.x - r, p.y -r, r * 2, r * 2);
+        break;
+      case "triangle":
+        ctx.moveTo(p.x, p.y - r);
+        ctx.lineTo(p.x + r, p.y + r);
+        ctx.lineTo(p.x - r, p.y + r);
+        ctx.closePath();
+        break;
+      case "cross": {
+        const a = r * 0.4
+        const pts = [[-a,-r],[a,-r],[a,-a],[r,-a],[r,a],[a,a],[a,r],[-a,r],[-a,a],[-r,a],[-r,-a],[-a,-a]];
+        pts.forEach(([dx, dy], i) =>
+          i === 0 ? ctx.moveTo(p.x + dx, p.y + dy) : ctx.lineTo(p.x + dx, p.y + dy));
+        ctx.closePath();
+        break;
+      }
+      default:
+        ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+    }
+    ctx.fillStyle = m.group === "capital" ? CAPITAL_FILL : SETTLEMENT_FILL;
+    ctx.fill();
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = SETTLEMENT_STROKE;
+    ctx.stroke();
+  }
 
   // Sizing 
   function resize() {

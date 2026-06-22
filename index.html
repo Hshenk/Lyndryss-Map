@@ -99,10 +99,42 @@
              default base map and starts active. -->
         <div id="map-mode-list" class="map-modes" role="group" aria-label="Map mode">
           <button class="btn map-mode is-active" type="button" data-mode="biome" aria-pressed="true">Biomes</button>
+          <button class="btn map-mode" type="button" data-mode="heightmap" aria-pressed="false">Heightmap</button>
           <button class="btn map-mode" type="button" data-mode="territory" aria-pressed="false">Territorial control</button>
+          <button class="btn map-mode" type="button" data-mode="province" aria-pressed="false">Provinces</button>
           <button class="btn map-mode" type="button" data-mode="culture" aria-pressed="false">Cultures</button>
           <button class="btn map-mode" type="button" data-mode="religion" aria-pressed="false">Religions</button>
         </div>
+      </details>
+
+      <!-- ---- Geography feature layers ---- -->
+      <details class="sidebar-section" open>
+        <summary class="sidebar-section__title">Features</summary>
+        <!-- JS (ui.js bindFeatureToggles): read data-feature, toggle layer
+             visibility in layers.js, repaint. -->
+        <ul id="feature-toggle-list" class="toggle-list">
+          <li class="toggle-row">
+            <label class="switch">
+              <input type="checkbox" class="switch__input" data-feature="rivers" checked>
+              <span class="switch__track" aria-hidden="true"></span>
+              <span class="switch__label">Rivers</span>
+            </label>
+          </li>
+          <li class="toggle-row">
+            <label class="switch">
+              <input type="checkbox" class="switch__input" data-feature="routes" checked>
+              <span class="switch__track" aria-hidden="true"></span>
+              <span class="switch__label">Routes</span>
+            </label>
+          </li>
+          <li class="toggle-row">
+            <label class="switch">
+              <input type="checkbox" class="switch__input" data-feature="labels" checked>
+              <span class="switch__track" aria-hidden="true"></span>
+              <span class="switch__label">Labels</span>
+            </label>
+          </li>
+        </ul>
       </details>
 
       <!-- ---- Marker icon categories ---- -->
@@ -201,6 +233,8 @@
       <button class="popup__close btn btn--icon" type="button" aria-label="Close">×</button>
       <h3 class="popup__title"></h3>
       <p class="popup__body"></p>
+      <!-- Settlements with a burg-preview link show this; JS sets href + unhides. -->
+      <a class="popup__link is-hidden" target="_blank" rel="noopener noreferrer">View burg ↗</a>
     </div>
   </template>
 

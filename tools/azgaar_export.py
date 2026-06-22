@@ -128,6 +128,21 @@ def load_features(path):
         return json.load(fh).get("features", [])
 
 
+_json_cache = {}
+
+
+def _load_azgaar_json(resources_dir):
+    """Parsed Azgaar JSON map export (Minimal preferred, Full fallback), memoized
+    so the multi-MB file is read once per run. None if no export is present."""
+    path = find_latest(resources_dir, "Minimal") or find_latest(resources_dir, "Full")
+    if not path:
+        return None
+    if path not in _json_cache:
+        with open(path, encoding="utf-8") as fh:
+            _json_cache[path] = json.load(fh)
+    return _json_cache[path]
+
+
 def load_azgaar_tables(resources_dir):
     """Read names/colors from Azgaar's JSON map export (Minimal preferred, Full as
     fallback) in resources_dir. Returns a lookups-shaped dict:
@@ -135,12 +150,9 @@ def load_azgaar_tables(resources_dir):
          "province": {...}, "biome": {id: {"name","color"}}}
     Empty dict if no JSON export is present (the tool still runs on GeoJSON only).
     The integer ids match the GeoJSON's state/culture/religion/province/biome."""
-    path = find_latest(resources_dir, "Minimal") or find_latest(resources_dir, "Full")
-    if not path:
+    data = _load_azgaar_json(resources_dir)
+    if data is None:
         return {}
-    with open(path, encoding="utf-8") as fh:
-        data = json.load(fh)
-    print(f"  names:   {os.path.basename(path)}")
 
     pack = data.get("pack", {})
     tables = {}
@@ -163,6 +175,31 @@ def load_azgaar_tables(resources_dir):
     tables["biome"] = {str(i): {"name": names[i], "color": colors[i]}
                        for i in range(min(len(names), len(colors)))}
     return tables
+
+
+def load_azgaar_geo(resources_dir):
+    """Burgs (settlements) and state/province label poles from the Azgaar JSON.
+    Returns {"burgs": [...], "poles": {"state": {id: [x,y]}, "province": {...}}}.
+    Coords are Azgaar pixels (same space as marker x/y). Empty if no JSON."""
+    data = _load_azgaar_json(resources_dir)
+    if data is None:
+        return {"burgs": [], "poles": {"state": {}, "province": {}}}
+    pack = data.get("pack", {})
+    burgs = [b for b in pack.get("burgs", []) if isinstance(b, dict) and b.get("i")]
+    poles = {"state": {}, "province": {}}
+    for key, arr in (("state", "states"), ("province", "provinces")):
+        for e in pack.get(arr, []):
+            if isinstance(e, dict) and e.get("i") and e.get("pole"):
+                poles[key][e["i"]] = e["pole"]
+    return {"burgs": burgs, "poles": poles}
+
+
+def make_pixel_projector(scale, origin_x, origin_y):
+    """Map an Azgaar PIXEL point (burgs, poles) to world px — the pixel analogue
+    of make_projector, which handles degrees. Defaults are identity."""
+    def to_world(px, py):
+        return [round((px - origin_x) * scale, 2), round((py - origin_y) * scale, 2)]
+    return to_world
 
 
 def merge_lookups(*sources):
@@ -402,31 +439,83 @@ def _flush_run(out, run, source, keep_props):
         })
 
 
-def build_markers(markers, revealed, grid, project):
-    """Convert revealed Azgaar POI markers to the site's markers.json schema."""
-    categories_seen = {}
+def burg_note(b):
+    """A short human description for a settlement popup, led by its burg group."""
+    pop = int(round((b.get("population") or 0) * 1000))
+    group = (b.get("group") or "town").replace("_", " ")
+    head = group[:1].upper() + group[1:]
+    if b.get("port"):
+        head += ", port"
+    return f"{head}. Population ~{pop:,}."
+
+
+def build_markers(markers, revealed, grid, project, burgs, to_world):
+    """POI markers (landmarks/hazards, from the GeoJSON) plus burgs (settlements,
+    from the JSON) in the site's markers.json schema. Settlements carry extra
+    fields the renderer uses to pick a shape/size and show a burg link."""
     out = []
     for m in markers:
         lon, lat = m["geometry"]["coordinates"]
         if grid.nearest_cell(lon, lat) not in revealed:
             continue
         p = m["properties"]
-        cat = MARKER_CATEGORY.get(p.get("type"), "landmarks")
-        categories_seen[cat] = True
         wx, wy = project(lon, lat)
         out.append({
             "id": p.get("id"),
-            "category": cat,
+            "category": MARKER_CATEGORY.get(p.get("type"), "landmarks"),
             "x": wx, "y": wy,
             "name": p.get("name") or p.get("type", "Marker"),
             "note": p.get("legend") or "",
         })
+
+    # Burgs -> settlements. Filter by the burg's own cell (precise).
+    for b in burgs:
+        if b.get("cell") not in revealed:
+            continue
+        wx, wy = to_world(b["x"], b["y"])
+        out.append({
+            "id": f"burg{b['i']}",
+            "category": "settlements",
+            "x": wx, "y": wy,
+            "name": b.get("name") or "Settlement",
+            "note": burg_note(b),
+            "link": b.get("link") or "",            # burg-preview href, if the GM set one
+            "group": b.get("group") or "town",      # capital/city/town/village/fort/monastery/…
+            "port": 1 if b.get("port") else 0,
+            "population": int(round((b.get("population") or 0) * 1000)),
+        })
+
     cat_defs = [
         {"id": "settlements", "name": "Settlements", "icon": "assets/icons/city.svg"},
         {"id": "landmarks", "name": "Landmarks", "icon": "assets/icons/landmark.svg"},
         {"id": "hazards", "name": "Hazards", "icon": "assets/icons/skull.svg"},
     ]
     return {"categories": cat_defs, "markers": out}
+
+
+def build_labels(geo, revealed, to_world, lookups):
+    """State and province text labels at their Azgaar 'pole' points, limited to
+    states/provinces that have at least one revealed cell. Names come from the
+    merged lookups so curation/renaming applies here too."""
+    poles = geo.get("poles", {})
+    revealed_states = {cells_by_id[c]["properties"].get("state") for c in revealed}
+    revealed_provs = {cells_by_id[c]["properties"].get("province") for c in revealed}
+
+    def collect(key, revealed_ids):
+        table = lookups.get(key, {})
+        out = []
+        for sid, pole in poles.get(key, {}).items():
+            if sid not in revealed_ids:
+                continue
+            name = (table.get(str(sid)) or {}).get("name")
+            if not name:
+                continue
+            wx, wy = to_world(pole[0], pole[1])
+            out.append({"id": sid, "name": name, "x": wx, "y": wy})
+        return out
+
+    return {"states": collect("state", revealed_states),
+            "provinces": collect("province", revealed_provs)}
 
 
 # ---------------------------------------------------------------------------
@@ -523,10 +612,18 @@ def cmd_build(args):
                              keep_props=("id", "group", "name"))
         _write_json(os.path.join(out_dir, "routes.geojson"), routes)
         print(f"  wrote routes.geojson ({len(routes['features'])} segments)")
+    geo = load_azgaar_geo(resources)
+    to_world = make_pixel_projector(args.scale, args.origin_x, args.origin_y)
     if args.markers:
-        mk = build_markers(markers, revealed, grid, project)
+        mk = build_markers(markers, revealed, grid, project, geo["burgs"], to_world)
         _write_json(os.path.join(out_dir, "markers.json"), mk)
-        print(f"  wrote markers.json ({len(mk['markers'])} markers)")
+        settle = sum(1 for m in mk["markers"] if m["category"] == "settlements")
+        print(f"  wrote markers.json ({len(mk['markers'])} markers, {settle} settlements)")
+
+    labels = build_labels(geo, revealed, to_world, lookups)
+    _write_json(os.path.join(out_dir, "labels.json"), labels)
+    print(f"  wrote labels.json ({len(labels['states'])} state, "
+          f"{len(labels['provinces'])} province labels)")
 
     _write_manifest(out_dir, args, revealed, revealed_ids, cells, lookups, world)
     print("done.")
@@ -565,10 +662,12 @@ def _write_manifest(out_dir, args, revealed, revealed_ids, cells, lookups, world
             "cells": "data/world.geojson",
             "rivers": "data/rivers.geojson",
             "routes": "data/routes.geojson",
+            "labels": "data/labels.json",
         },
         "overlays": {
             "biome": build_palette(cells, revealed, "biome", lookups),
             "state": build_palette(cells, revealed, "state", lookups),
+            "province": build_palette(cells, revealed, "province", lookups),
             "culture": build_palette(cells, revealed, "culture", lookups),
             "religion": build_palette(cells, revealed, "religion", lookups),
         },

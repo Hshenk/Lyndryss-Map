@@ -33,7 +33,7 @@
 
 import { ZOOM_STEP } from "./config.js";
 import { overlayPalette } from "./map-data.js";
-import { setActiveOverlay, getActiveOverlay, setCategoryVisible, isCategoryVisible } from "./layers.js";
+import { setActiveOverlay, getActiveOverlay, setCategoryVisible, isCategoryVisible, setRiversVisible, setRoutesVisible } from "./layers.js";
 import { getCategories, getCategoryCount, getCategoryIcon, searchMarkers } from "./markers.js";
 import { updateAnnotation, removeAnnotation, clearAnnotations } from "./annotations.js";
 
@@ -79,6 +79,7 @@ export function initUI(r) {
   buildLegend();
   bindBulkButtons();
   bindAnnotationTools();
+  bindFeatureToggles();
   bindSearch();
   bindErrorDismiss();
 }
@@ -139,6 +140,14 @@ export function openMarkerPopup(marker, sx, sy) {
   const popup = fragment.querySelector(".popup");
   popup.querySelector(".popup__title").textContent = marker.name;
   popup.querySelector(".popup__body").textContent = marker.note ?? "";
+
+  const link = popup.querySelector(".popup__link");
+  if (marker.link) {
+    link.href = marker.link;
+    link.classList.remove("is-hidden");
+  }
+
+
   popup.querySelector(".popup__close").addEventListener("click", closePopups);
   popupLayer().append(popup);
   positionPopup(popup, sx, sy);
@@ -191,22 +200,6 @@ export function showError(message) {
   document.getElementById("error-banner").classList.remove("is-hidden");
 }
 
-// function bindOverlayToggles() {
-//   const inputs = document.querySelectorAll("#overlay-toggle-list .switch__input");
-//   for (const input of inputs) {
-//     input.disabled = false;
-//     input.addEventListener("change", () => {
-//       if (input.checked) {
-//         // mutually exclusive map modes
-//         for (const other of inputs) if (other !== input) other.checked = false;
-//         setActiveOverlay(input.dataset.layer);
-//       } else {
-//         setActiveOverlay(null);
-//       }
-//       buildLegend();
-//     });
-//   }
-// }
 
 function bindMapModes() {
   const buttons = document.querySelectorAll("#map-mode-list .map-mode");
@@ -229,7 +222,8 @@ function bindMapModes() {
 function buildLegend() {
   const list = document.getElementById("legend-list");
   const overlay = getActiveOverlay();
-  if (!overlay || overlay === "biome") return buildMarkerLegend(list);
+  if (!overlay || overlay === "biome" || overlay === "province") return buildMarkerLegend(list);
+  if (overlay === "heightmap") return buildHeightLegend(list);
 
   const entries = Object.entries(overlayPalette(overlay))
     .filter(([id]) => id !== "0")
@@ -260,6 +254,18 @@ function buildMarkerLegend(list) {
   }
 }
 
+function buildHeightLegend(list) {
+  list.replaceChildren();
+  const li = document.createElement("li");
+  li.className = "legend-list__item";
+  li.innerHTML =
+  `<div style="flex:1">
+      <div style="height:10px;border-radius:3px;background:linear-gradient(to right,` +
+      `rgb(70,96,168),rgb(76,145,190),rgb(96,190,170),rgb(170,212,120),rgb(240,238,165),rgb(242,165,80),rgb(214,72,50),rgb(112,20,52))"></div>
+      <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-muted);margin-top:2px">` +
+      `<span>Low</span><span>High</span></div></div>`;
+  list.appendChild(li);
+}
 
 
 function buildIconToggles() {
@@ -293,6 +299,16 @@ function bindBulkButtons() {
   };
   document.getElementById("icons-show-all").addEventListener("click", () => setAll(true));
   document.getElementById("icons-hide-all").addEventListener("click", () => setAll(false));
+}
+
+
+function bindFeatureToggles() {
+  for (const input of document.querySelectorAll("#feature-toggle-list .switch__input")) {
+    input.addEventListener("change", () => {
+      if (input.dataset.feature === "rivers") setRiversVisible(input.checked);
+      else if (input.dataset.feature === "routes") setRoutesVisible(input.checked);
+    });
+  }
 }
 
 

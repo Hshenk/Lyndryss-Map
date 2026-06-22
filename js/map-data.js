@@ -1,6 +1,6 @@
 import { MANIFEST_URL } from "./config.js";
 
-const OVERLAY_ATTRIBUTE = { territory: "state", culture: "culture", religion: "religion" };
+const OVERLAY_ATTRIBUTE = { territory: "state", province: "province", culture: "culture", religion: "religion" };
 
 
 let manifest = null;
@@ -132,6 +132,7 @@ function pointInCell(cell, x, y) {
  * The fill color for a cell in a given map-mode
  */
 export function overlayColor(cell, overlayId) {
+    if (overlayId === "heightmap") return heightColor(cell.properties.height);
     const key = OVERLAY_ATTRIBUTE[overlayId];
     if (!key) return null;
     const id = cell.properties[key];
@@ -200,3 +201,48 @@ export function getVisibleRoutes(minX, minY, maxX, maxY) {
     }
     return out;
 }
+
+
+
+/** Heigh Map  */
+const HEIGHT_RAMP = [
+  [0.00, [ 70,  96, 168]],  // low — blue
+  [0.16, [ 76, 145, 190]],  // blue
+  [0.32, [ 96, 190, 170]],  // teal
+  [0.48, [170, 212, 120]],  // green
+  [0.60, [240, 238, 165]],  // pale yellow (mid)
+  [0.74, [242, 165,  80]],  // orange
+  [0.88, [214,  72,  50]],  // red
+  [1.00, [112,  20,  52]],  // high — dark maroon
+];
+
+/** Gets the minimum and maximum heights present */
+let heightRange = null;
+function getHeightRange() {
+    if (!heightRange) {
+        let lo = Infinity, hi = -Infinity;
+        for (const c of cells) {
+            if (c.properties.type !== "island") continue;
+            const h = c.properties.height;
+            if (h < lo) lo = h;
+            if (h > hi) hi = h;
+        }
+        heightRange = [Math.max(lo, 1), Math.max(hi, 2)];
+    }
+    return heightRange;
+}
+
+function heightColor(h) {
+    const [lo, hi] = getHeightRange();
+    const t = Math.min(1, Math.max(0,
+        (Math.log(Math.max(h, lo)) - Math.log(lo)) / (Math.log(hi) - Math.log(lo))));
+    let a = HEIGHT_RAMP[0], b = HEIGHT_RAMP[HEIGHT_RAMP.length - 1];
+    for (let i = 0; i < HEIGHT_RAMP.length - 1; i++) {
+        if (t >= HEIGHT_RAMP[i][0] && t <= HEIGHT_RAMP[i + 1][0]) { a = HEIGHT_RAMP[i]; b = HEIGHT_RAMP[i + 1]; break;}
+    }
+    const f = (t - a[0]) / ((b[0] - a[0]) || 1);
+    const c = a[1].map((ca, k) => Math.round(ca + (b[1][k] - ca) * f));
+    return `rgb(${c[0]},${c[1]},${c[2]})`; 
+}
+
+

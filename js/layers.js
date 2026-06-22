@@ -11,6 +11,10 @@ let activeOverlay = "biome";  // Default map-mode
 const hiddenCategories = new Set();
 const listeners = [];
 
+// Rivers and routes
+let riversVisible = true;
+let routesVisible = true;
+
 
 function notify() {
   for (const callback of listeners) callback();
@@ -82,3 +86,11 @@ export function setCategoryVisible(categoryId, visible) {
 export function onLayersChanged(callback) {
   listeners.push(callback);
 }
+
+
+// Rivers and Routes
+export function isRiversVisible() { return riversVisible; }
+export function setRiversVisible(v) { riversVisible = v; notify(); }
+
+export function isRoutesVisible() { return routesVisible; }
+export function setRoutesVisible(v) { routesVisible = v; notify(); }
