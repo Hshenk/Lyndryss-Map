@@ -369,10 +369,14 @@ def build_cells(cells, revealed, project, lookups):
     return {"type": "FeatureCollection", "features": out}
 
 
-def build_lines(features, revealed, grid, project, keep_props):
+def build_lines(features, revealed, grid, project, keep_props, land_only=False):
     """Clip rivers/routes to revealed area: walk each line's vertices, classify
     each by nearest cell, and keep only the contiguous runs inside revealed
-    cells. A line that crosses out and back yields multiple segments."""
+    cells. A line that crosses out and back yields multiple segments.
+
+    land_only=True additionally drops vertices over water (ocean/lake), so rivers
+    stop at the coastline instead of drawing across the sea. Sea routes leave it
+    off, since they belong on the water."""
     out = []
     for f in features:
         geom = f["geometry"]
@@ -381,7 +385,11 @@ def build_lines(features, revealed, grid, project, keep_props):
         for line in lines:
             run = []
             for x, y in line:
-                inside = grid.nearest_cell(x, y) in revealed
+                cid = grid.nearest_cell(x, y)
+                inside = cid in revealed
+                if inside and land_only:
+                    cell = cells_by_id.get(cid)
+                    inside = bool(cell) and cell["properties"].get("type") == "island"
                 if inside:
                     run.append(project(x, y))
                 elif run:
@@ -510,8 +518,12 @@ def cmd_build(args):
     print(f"  wrote world.geojson ({len(world['features'])} cells)")
 
     if rivers_path:
+        # Keep the width fields so the renderer can taper rivers source->mouth,
+        # and clip to land so they stop at the coast instead of crossing ocean.
         rivers = build_lines(load_features(rivers_path), revealed, grid, project,
-                             keep_props=("id", "name", "type"))
+                             keep_props=("id", "name", "type",
+                                         "sourceWidth", "widthFactor", "discharge"),
+                             land_only=True)
         _write_json(os.path.join(out_dir, "rivers.geojson"), rivers)
         print(f"  wrote rivers.geojson ({len(rivers['features'])} segments)")
     if routes_path:

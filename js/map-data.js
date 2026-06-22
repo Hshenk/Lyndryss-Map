@@ -6,6 +6,10 @@ const OVERLAY_ATTRIBUTE = { territory: "state", culture: "culture", religion: "r
 let manifest = null;
 let cells = [];
 let cellBoxes = [];
+let rivers = [];
+let riverBoxes = [];
+let routes = [];
+let routeBoxes = [];
 
 /**
  * Fetch the manifest, then call GeoJSON it points to. 
@@ -24,6 +28,12 @@ export async function loadWorldData() {
     cells = fc.features ?? [];
 
     cellBoxes = cells.map(boundingBox);
+
+    // Rivers and Routes
+    rivers = await loadLines(manifest.data?.rivers);
+    riverBoxes = rivers.map(lineBoundingBox);
+    routes = await loadLines(manifest.data?.routes);
+    routeBoxes = routes.map(lineBoundingBox);
 
     return manifest;
 }
@@ -131,4 +141,62 @@ export function overlayColor(cell, overlayId) {
 export function overlayPalette(overlayId) {
     const key = OVERLAY_ATTRIBUTE[overlayId];
     return (key && manifest.overlays?.[key]) || {};
+}
+
+
+//   --- Rivers and Routes ---
+
+
+/** Fetch GeoJSON line file's features */
+async function loadLines(url) {
+    if (!url) return [];
+    const res = await fetch(url, { cache: "no-cache" });
+    if (!res.ok) return [];
+    const fc = await res.json();
+    return fc.features ?? [];
+}
+
+/** Call fn(coords) for each line */
+export function forEachLine(geometry, fn) {
+    if (geometry.type === "LineString") fn(geometry.coordinates);
+    else if (geometry.type === "MultiLineString") {
+        for (const line of geometry.coordinates) fn(line);
+    }
+}
+
+/** World-px bounding box of a line feature */
+function lineBoundingBox(feature) {
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    forEachLine(feature.geometry, (coords) => {
+        for (const [x, y] of coords) {
+            if (x < minX) minX = x;
+            if (y < minY) minY = y;
+            if (x > maxX) maxX = x;
+            if (y > maxY) maxY = y
+        }
+    });
+    return { minX, minY, maxX, maxY };
+}
+
+/** Does a precomputed box overlap the query rectangle? */
+function overlaps(b, minX, minY, maxX, maxY) {
+    return !(b.maxX < minX || b.minX > maxX || b.maxY < minY || b.minY > maxY);
+}
+
+/** Rivers whose box overlaps the world-px rectangle */
+export function getVisibleRivers(minX, minY, maxX, maxY) {
+    const out = [];
+    for (let i = 0; i < rivers.length; i++) {
+        if (overlaps(riverBoxes[i], minX, minY, maxX, maxY)) out.push(rivers[i]);
+    }
+    return out;
+}
+
+/** Routes whose box overlaps the world-px rectangle */
+export function getVisibleRoutes(minX, minY, maxX, maxY) {
+    const out = [];
+    for (let i = 0; i < routes.length; i++) {
+        if (overlaps(routeBoxes[i], minX, minY, maxX, maxY)) out.push(routes[i]);
+    }
+    return out;
 }

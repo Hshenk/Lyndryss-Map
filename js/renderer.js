@@ -34,8 +34,10 @@ import { MIN_SCALE, MAX_SCALE } from "./config.js";
 import { getVisibleMarkers, getCategoryIcon, hitTest as markerHitTest } from "./markers.js";
 import { getAnnotations, addAnnotation, hitTest as annotationHitTest } from "./annotations.js";
 import { getUIState, openMarkerPopup, openNotePopup, closePopups, setActiveTool } from "./ui.js";
-import { getVisibleCells, forEachRing, cellAt, overlayColor } from "./map-data.js";
+import { getVisibleCells, forEachRing, cellAt, overlayColor,
+         getVisibleRivers, getVisibleRoutes, forEachLine } from "./map-data.js";
 import { getActiveOverlay } from "./layers.js";
+
 
 
 /**
@@ -67,6 +69,15 @@ const ANNOTATION_RING = "#e0b75c"; // Player markers
 const CLICK_SLOP = 5;
 /** Zoom factor per wheel notch. */
 const WHEEL_STEP = 1.1;
+
+/** Rivers and Routes */
+const RIVER_COLOR = "3d6f9e";
+const ROUTE_STYLES = {
+  roads:     { color: "#9c7a4d", width: 1.6, dash: [] },
+  trails:    { color: "#9c7a4d", width: 1.0, dash: [4, 3] },
+  searoutes: { color: "#6f8fae", width: 1.0, dash: [2, 4] },
+};
+
 
 /**
  * Create the renderer bound to a canvas.
@@ -152,6 +163,28 @@ export function createRenderer(canvas, manifest) {
       ctx.fill(path);
     }
 
+
+    // --- Rivers and Routes ---
+    ctx.lineJoin = "round";
+    ctx.lineCap = "round";
+
+    ctx.strokeStyle = RIVER_COLOR;
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([]);
+    for (const river of getVisibleRivers(tl.x, tl.y, br.x, br.y)) {
+      ctx.stroke(linePath(river));
+    }
+
+    for (const route of getVisibleRoutes(tl.x, tl.y, br.x, br.y)) {
+      const s = ROUTE_STYLES[route.properties.group] ?? ROUTE_STYLES.trails;
+      ctx.strokeStyle = s.color;
+      ctx.lineWidth = s.width;
+      ctx.setLineDash(s.dash);
+      ctx.stroke(linePath(route));
+    }
+    ctx.setLineDash([]); // Reset so marker-ring strokes are not dashed
+
+
     // --- markers then annotations
     for (const m of getVisibleMarkers()) {
       drawBadge(m.x, m.y, getCategoryIcon(m.category), MARKER_RING);
@@ -179,6 +212,19 @@ export function createRenderer(canvas, manifest) {
         else path.lineTo(p.x, p.y);
       }
       path.closePath();
+    });
+    return path;
+  }
+
+  /** Build a Path2D of a line feature */
+  function linePath(feature) {
+    const path = new Path2D();
+    forEachLine(feature.geometry, (coords) => {
+      for (let i = 0; i < coords.length; i++) {
+        const p = worldToScreen(coords[i][0], coords[i][1]);
+        if (i === 0) path.moveTo(p.x, p.y);
+        else path.lineTo(p.x, p.y);
+      }
     });
     return path;
   }
