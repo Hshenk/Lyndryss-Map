@@ -71,7 +71,7 @@ const CLICK_SLOP = 5;
 const WHEEL_STEP = 1.1;
 
 /** Rivers and Routes */
-const RIVER_COLOR = "3d6f9e";
+const RIVER_COLOR = "#3d6f9e";
 const ROUTE_STYLES = {
   roads:     { color: "#9c7a4d", width: 1.6, dash: [] },
   trails:    { color: "#9c7a4d", width: 1.0, dash: [4, 3] },
@@ -169,11 +169,19 @@ export function createRenderer(canvas, manifest) {
     ctx.lineCap = "round";
 
     ctx.strokeStyle = RIVER_COLOR;
-    ctx.lineWidth = 1.5;
     ctx.setLineDash([]);
     for (const river of getVisibleRivers(tl.x, tl.y, br.x, br.y)) {
-      ctx.stroke(linePath(river));
+      drawRiver(river);
     }
+
+    // Re-cover lakes so rivers passing over them don't show
+    for (const cell of getVisibleCells(tl.x, tl.y, br.x, br.y)) {
+      if (cell.properties.type === "lake") {
+        ctx.fillStyle = cell.properties.fill;
+        ctx.fill(cellPath(cell));
+      }
+    }
+
 
     for (const route of getVisibleRoutes(tl.x, tl.y, br.x, br.y)) {
       const s = ROUTE_STYLES[route.properties.group] ?? ROUTE_STYLES.trails;
@@ -227,6 +235,27 @@ export function createRenderer(canvas, manifest) {
       }
     });
     return path;
+  }
+
+  function drawRiver(feature) {
+    const p = feature.properties;
+    const sourceW = 0.5;
+
+    // sqrt keeps a huge river from dwarfing the rest; tune 0.13 to taste
+    const mouthW = Math.min(8, sourceW + Math.sqrt(p.discharge ?? 0) * 0.23 * (p.widthFactor ?? 1));
+    forEachLine(feature.geometry, (coords) => {
+      const n = coords.length;
+      for (let i = 0; i < n - 1; i++) {
+        const a = worldToScreen(coords[i][0], coords[i][1]);
+        const b = worldToScreen(coords[i + 1][0], coords[i+1][1]);
+        const t = n > 2 ? i / (n - 2) : 1; // 0 at source 1 at mouth
+        ctx.lineWidth = sourceW + (mouthW - sourceW) * t;
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
+        ctx.stroke();
+      }
+    });
   }
 
 
