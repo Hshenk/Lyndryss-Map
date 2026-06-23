@@ -89,6 +89,16 @@
          this into a bottom sheet; the same class controls both. -->
     <aside id="sidebar" class="sidebar" aria-label="Map controls">
 
+      <!-- Mobile-only collapse handle (the header ☰ also toggles the panel).
+           JS: wire to collapse #sidebar (add .sidebar--collapsed). -->
+      <button id="sidebar-collapse" class="sidebar-collapse" type="button"
+              aria-controls="sidebar" title="Collapse panel" aria-label="Collapse panel">
+        <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+          <path d="M7 10l5 5 5-5" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+        </svg>
+      </button>
+
       <!-- ---- Marker search ---- -->
       <div class="sidebar-search">
         <!-- JS: filter markers by name on input; render matches into #search-results

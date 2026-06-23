@@ -89,11 +89,16 @@ export function initUI(r) {
 function bindSidebarToggle() {
   const button = document.getElementById("sidebar-toggle");
   const sidebar = document.getElementById("sidebar");
-  button.addEventListener("click", () => {
-    const collapsed = sidebar.classList.toggle("sidebar--collapsed");
-    button.setAttribute("aria-expanded", String(!collapsed));
-  });
+  const setExpanded = (expanded) => {
+    sidebar.classList.toggle("sidebar--collapsed", !expanded);
+    button.setAttribute("aria-expanded", String(expanded));
+  };
+  button.addEventListener("click", () =>
+    setExpanded(sidebar.classList.contains("sidebar--collapsed")));
+  document.getElementById("sidebar-collapse")
+    ?.addEventListener("click", () => setExpanded(false));
 }
+
 
 // When we try to zoom the webpage, send that instead to our zoom function
 function bindZoomControls(){

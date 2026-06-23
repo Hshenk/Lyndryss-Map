@@ -442,6 +442,12 @@ body.is-placing .map-canvas {
   transform: translateX(100%);
 }
 
+/* Collapse handle: hidden on desktop (the header ☰ collapses the panel there);
+   shown as a sticky bar at the top of the bottom sheet on mobile. */
+.sidebar-collapse {
+  display: none;
+}
+
 /* ---- Search ---- */
 .sidebar-search {
   position: relative;
@@ -798,6 +804,29 @@ body.is-placing .map-canvas {
 
   .sidebar.sidebar--collapsed {
     transform: translateY(100%);
+  }
+
+  /* Tappable collapse bar pinned to the top edge of the sheet (thumb-reachable). */
+  .sidebar-collapse {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: sticky;
+    top: 0;
+    flex: 0 0 auto;
+    width: 100%;
+    height: 30px;
+    margin-bottom: 6px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text-muted);
+    cursor: pointer;
+    z-index: 2;
+  }
+
+  .sidebar-collapse:active {
+    color: var(--text);
   }
 
   /* keep zoom buttons clear of the sheet (top-right; the sheet rises from
