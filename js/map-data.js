@@ -10,6 +10,7 @@ let rivers = [];
 let riverBoxes = [];
 let routes = [];
 let routeBoxes = [];
+let labels = { states: [], provinces: [] };
 
 /**
  * Fetch the manifest, then call GeoJSON it points to. 
@@ -35,6 +36,13 @@ export async function loadWorldData() {
     routes = await loadLines(manifest.data?.routes);
     routeBoxes = routes.map(lineBoundingBox);
 
+    // Labels
+    const labelsUrl = manifest.data?.labels;
+    if (labelsUrl) {
+        const res = await fetch(labelsUrl, { cache: "no-cache" });
+        if (res.ok) labels = await res.json();
+    }
+
     return manifest;
 }
 
@@ -45,6 +53,9 @@ export function getManifest() {
 export function getCells() {
     return cells;
 }
+
+export function getStateLabels() { return labels.states; }
+export function getProvinceLabels() { return labels.provinces; }
 
 /**
  * Cells whose bounding box overlaps the given world-px rectangle. The
@@ -245,4 +256,28 @@ function heightColor(h) {
     return `rgb(${c[0]},${c[1]},${c[2]})`; 
 }
 
+ 
+/** nearest river within 'tol' world px of (wx, wy) */
+export function riverAt(wx, wy, tol) {
+    let best = null, bestD = tol * tol;
+    for (const r of rivers) {
 
+        forEachLine(r.geometry, (coords) => {
+            for (let i = 0; i < coords.length - 1; i++) {
+                const d = distToSegmentSq(wx, wy, coords[i], coords[i + 1]);
+                if (d < bestD) { bestD = d; best = r; }
+            }
+        });
+    }
+    return best;
+}
+
+/** Squared distance from point to segment  */
+function distToSegmentSq(px, py, a, b) {
+    const dx = b[0] - a[0], dy = b[1] - a[1];
+    const len2 = dx * dx + dy * dy;
+    let t = len2 ? ((px - a[0]) * dx + (py - a[1]) * dy) / len2 : 0;
+    t = Math.max(0, Math.min(1, t));
+    const cx = a[0] + t * dx, cy = a[1] + t * dy;
+    return (px - cx) ** 2 + (py - cy) ** 2;
+}

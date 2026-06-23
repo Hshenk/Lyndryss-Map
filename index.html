@@ -7,6 +7,10 @@
   <title>Lyndryss — Campaign Map</title>
   <link rel="stylesheet" href="css/style.css">
   <link rel="icon" href="assets/icons/compass.svg" type="image/svg+xml">
+  <!-- Amarante: decorative font used for canvas map labels (single 400 weight). -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Amarante&display=swap" rel="stylesheet">
 </head>
 <body>
   <div id="app" class="app">
@@ -56,6 +60,10 @@
 
       <!-- Cursor world-coordinates readout. JS: update textContent on pointermove. -->
       <output id="coords-readout" class="coords-readout" aria-live="off">0, 0</output>
+
+      <!-- Feature status bar (bottom-center): province/state, culture, river/lake…
+           JS sets textContent on pointermove based on the active map-mode. -->
+      <output id="status-readout" class="status-readout" aria-live="off"></output>
 
       <!-- Popups (marker info, note editing) get appended here by JS and positioned
            absolutely. The layer spans the viewport but ignores pointer events;

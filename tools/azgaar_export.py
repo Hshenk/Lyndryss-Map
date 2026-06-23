@@ -202,6 +202,28 @@ def make_pixel_projector(scale, origin_x, origin_y):
     return to_world
 
 
+def load_lake_names(resources_dir):
+    """{cell_id: lake_name} from the Full JSON's per-cell feature ids. The Minimal
+    export omits pack.cells, so lakes are named only when a Full export is present."""
+    path = find_latest(resources_dir, "Full")
+    if not path:
+        return {}
+    if path not in _json_cache:
+        with open(path, encoding="utf-8") as fh:
+            _json_cache[path] = json.load(fh)
+    pack = _json_cache[path].get("pack", {})
+    feats = {f["i"]: f for f in pack.get("features", [])
+             if isinstance(f, dict) and "i" in f}
+    out = {}
+    for c in pack.get("cells", []):
+        if not isinstance(c, dict):
+            continue
+        feat = feats.get(c.get("f"))
+        if feat and feat.get("type") == "lake" and feat.get("name"):
+            out[c["i"]] = feat["name"]
+    return out
+
+
 def merge_lookups(*sources):
     """Combine name/color tables, earlier sources winning per-id. Each source is
     a dict overlay_key -> {id_str: {name,color}}."""
@@ -381,27 +403,31 @@ def base_fill(props, lookups):
     return BIOME_DEFAULTS.get(biome, ("?", "#888888"))[1]
 
 
-def build_cells(cells, revealed, project, lookups):
-    """world.geojson: revealed cells, world-px, trimmed props + baked base fill."""
+def build_cells(cells, revealed, project, lookups, lake_names):
+    """world.geojson: revealed cells, world-px, trimmed props + baked base fill.
+    Lake cells get a `name` (their feature name) when a Full export supplied it."""
     out = []
     for f in cells:
         if f["properties"]["id"] not in revealed:
             continue
         p = f["properties"]
+        props = {
+            "id": p["id"],
+            "type": p.get("type"),
+            "height": p.get("height"),
+            "biome": p.get("biome"),
+            "state": p.get("state"),
+            "province": p.get("province"),
+            "culture": p.get("culture"),
+            "religion": p.get("religion"),
+            "fill": base_fill(p, lookups),
+        }
+        if p["id"] in lake_names:
+            props["name"] = lake_names[p["id"]]
         out.append({
             "type": "Feature",
             "geometry": project_geometry(f["geometry"], project),
-            "properties": {
-                "id": p["id"],
-                "type": p.get("type"),
-                "height": p.get("height"),
-                "biome": p.get("biome"),
-                "state": p.get("state"),
-                "province": p.get("province"),
-                "culture": p.get("culture"),
-                "religion": p.get("religion"),
-                "fill": base_fill(p, lookups),
-            },
+            "properties": props,
         })
     return {"type": "FeatureCollection", "features": out}
 
@@ -596,7 +622,8 @@ def cmd_build(args):
                             load_azgaar_tables(resources))
 
     # Outputs
-    world = build_cells(cells, revealed, project, lookups)
+    lake_names = load_lake_names(resources)   # needs a Full JSON; else lakes unnamed
+    world = build_cells(cells, revealed, project, lookups, lake_names)
     _write_json(os.path.join(out_dir, "world.geojson"), world)
     print(f"  wrote world.geojson ({len(world['features'])} cells)")
 

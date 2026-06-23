@@ -33,7 +33,8 @@
 
 import { ZOOM_STEP } from "./config.js";
 import { overlayPalette } from "./map-data.js";
-import { setActiveOverlay, getActiveOverlay, setCategoryVisible, isCategoryVisible, setRiversVisible, setRoutesVisible } from "./layers.js";
+import { setActiveOverlay, getActiveOverlay, setCategoryVisible, isCategoryVisible, 
+  setRiversVisible, setRoutesVisible, setLabelsVisible } from "./layers.js";
 import { getCategories, getCategoryCount, getCategoryIcon, searchMarkers } from "./markers.js";
 import { updateAnnotation, removeAnnotation, clearAnnotations } from "./annotations.js";
 
@@ -305,8 +306,10 @@ function bindBulkButtons() {
 function bindFeatureToggles() {
   for (const input of document.querySelectorAll("#feature-toggle-list .switch__input")) {
     input.addEventListener("change", () => {
-      if (input.dataset.feature === "rivers") setRiversVisible(input.checked);
-      else if (input.dataset.feature === "routes") setRoutesVisible(input.checked);
+      const f = input.dataset.feature;
+      if (f === "rivers") setRiversVisible(input.checked);
+      else if (f === "routes") setRoutesVisible(input.checked);
+      else if (f === "labels") setLabelsVisible(input.checked);
     });
   }
 }

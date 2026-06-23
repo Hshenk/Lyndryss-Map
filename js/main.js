@@ -61,6 +61,11 @@ async function init() {
       })
     );
 
+    // 3.1 Reload for fonts
+    if (document.fonts?.load) {
+      document.fonts.load("16px Amarante").then(() => renderer.render());
+    }
+
     // 4. If the URL carries a view, jump there.
     applyHashState(renderer, readViewFromHash());
     onHashChange((state) => applyHashState(renderer, state));

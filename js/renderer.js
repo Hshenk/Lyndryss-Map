@@ -35,8 +35,8 @@ import { getVisibleMarkers, getCategoryIcon, hitTest as markerHitTest } from "./
 import { getAnnotations, addAnnotation, hitTest as annotationHitTest } from "./annotations.js";
 import { getUIState, openMarkerPopup, openNotePopup, closePopups, setActiveTool } from "./ui.js";
 import { getVisibleCells, forEachRing, cellAt, overlayColor,
-         getVisibleRivers, getVisibleRoutes, forEachLine } from "./map-data.js";
-import { getActiveOverlay, isRiversVisible, isRoutesVisible } from "./layers.js";
+         getVisibleRivers, getVisibleRoutes, forEachLine, getStateLabels, getProvinceLabels, riverAt } from "./map-data.js";
+import { getActiveOverlay, isRiversVisible, isRoutesVisible, isLabelsVisible } from "./layers.js";
 
 
 
@@ -81,6 +81,10 @@ const ROUTE_STYLES = {
   searoutes: { color: "#6f8fae", width: 1.0, dash: [2, 4] },
 };
 
+/** Labels */
+const LABEL_COLOR = "#1c1f26";
+const LABEL_HALO = "rgba(245, 242, 235, 0.40)";
+const LABEL_FONT = "'Amarante', system-ui, sans-serif";
 
 /**
  * Create the renderer bound to a canvas.
@@ -92,6 +96,7 @@ export function createRenderer(canvas, manifest, onViewChange) {
 
   // Grab the readout element 
   const coordsEl = document.getElementById("coords-readout");
+  const statusEl = document.getElementById("status-readout");
 
   // Remember a ResizeObserver on the canvas parent + resize() keeps it crisp.
   const ctx = canvas.getContext("2d");
@@ -123,13 +128,35 @@ export function createRenderer(canvas, manifest, onViewChange) {
     }
 
 
+    // const province = p.province ? manifest.overlays?.province?.[p.province]?.name : null;
+    // // State 0 is neutrals
+    // const state = p.state ? manifest.overlays?.state?.[p.state]?.name : null;
 
-    const province = p.province ? manifest.overlays?.province?.[p.province]?.name : null;
-    // State 0 is neutrals
-    const state = p.state ? manifest.overlays?.state?.[p.state]?.name : null;
-
-    const parts = [biome, province, state].filter(Boolean);
+    const parts = [biome].filter(Boolean);
     return parts.length ? `${xy} · ${parts.join(" · ")}` : xy;
+  }
+
+
+  /** Gets the text to display in a status text at the bottom of the page */
+  function statusText(cell, river) {
+    if (river) return `${river.properties.name} River` || "River";
+    if (!cell || cell.properties.type === "ocean") return "";
+    const p = cell.properties;
+    if (p.biome === 11 || manifest.overlays?.province?.[p.province]?.name === "Province 0") return "";
+    if (p.type === "lake") return `${p.name} Lake` || "Lake";
+
+    const mode = getActiveOverlay();
+    if (mode === "culture") {
+      const c = manifest.overlays?.culture?.[p.culture]?.name;
+      return c ? `Culture: ${c}` : "";
+    }
+    if (mode === "religion") {
+      const r = manifest.overlays?.religion?.[p.religion]?.name;
+      return r ? `Religion: ${r}` : "";
+    }
+    const prov = manifest.overlays?.province?.[p.province]?.name;
+    const state = p.state ? manifest.overlays?.state?.[p.state]?.name : null;
+    return [prov, state].filter(Boolean).join(", ");
   }
 
 
@@ -224,6 +251,8 @@ export function createRenderer(canvas, manifest, onViewChange) {
     for (const a of getAnnotations()) {
       drawBadge(a.x, a.y, `assets/icons/${a.icon}.svg`, ANNOTATION_RING);
     }
+  
+  drawLabels();
   }
 
 
@@ -376,6 +405,50 @@ export function createRenderer(canvas, manifest, onViewChange) {
     ctx.stroke();
   }
 
+
+  // --- Labels ---
+  /** Determine what label tiers to draw at current scale and map-mode */
+  function labelPlan(mode, scale) {
+    if (mode === "biome" || mode === "heightmap") return {}; // No labels for heightmap and biomes
+    const burgs = scale >= 1.5;
+    if (mode === "province") return { provinces: scale >= 0.5, burgs };
+    return { states: scale <= 1.5, burgs };
+  }
+
+  function drawLabels() {
+    if (!isLabelsVisible()) return;
+    const plan = labelPlan(getActiveOverlay(), view.scale);
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.lineJoin = "round";
+
+    if (plan.states) for (const l of getStateLabels()) drawLabel(l.name, l.x, l.y, 25, 700);
+    if (plan.provinces) for (const l of getProvinceLabels()) drawLabel(l.name, l.x, l.y, 12, 600);
+    if (plan.burgs) {
+      for (const m of getVisibleMarkers()) {
+        if (m.category !== "settlements") continue;
+        if (!settlementVisibleAt(m, view.scale)) continue;
+        drawLabel(m.name, m.x, m.y, m.group === "capital" ? 12 : 10, 500, settlementRadius(m) + 9);
+      }
+    }
+  }
+
+  /** Draws an individual label */
+  function drawLabel(text, wx, wy, fontPx, weight, dy = 0) {
+    const p = worldToScreen(wx, wy);
+    if (p.x < 0 || p.y < 0 || p.x > canvas.clientWidth || p.y > canvas.clientHeight) return;
+    ctx.font = `${weight} ${fontPx}px ${LABEL_FONT}`;
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = LABEL_HALO;
+    ctx.strokeText(text, p.x, p.y + dy); // Place a halo first
+    ctx.fillStyle = LABEL_COLOR;
+    ctx.fillText(text, p.x, p.y + dy); // ... then fill the text on top
+  }
+
+
+
+
+
   // Sizing 
   function resize() {
     const dpr = window.devicePixelRatio || 1;
@@ -435,7 +508,11 @@ export function createRenderer(canvas, manifest, onViewChange) {
 
     // Coordinate readout (World coordinates that are under the cursor).
     const wpt = screenToWorld(cur.x, cur.y);
-    coordsEl.textContent = describeAt(wpt, cellAt(wpt.x, wpt.y));
+    const cell = cellAt(wpt.x, wpt.y);
+    const river = riverAt(wpt.x, wpt.y, 5 / view.scale);
+    coordsEl.textContent = describeAt(wpt, cell);
+    statusEl.textContent = statusText(cell, river);
+
 
     if (!pointers.has(e.pointerId)) return; // We're hovering, not holding click
 

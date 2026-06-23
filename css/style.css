@@ -237,6 +237,39 @@ body.is-placing .map-canvas {
   z-index: 10;
 }
 
+/* Feature status bar — bottom center (province/state, culture, river/lake…).
+   Azgaar-style: a wide band, faint in the middle, fading to transparent at the
+   left/right edges; no hard border, larger text with a shadow for legibility. */
+.status-readout {
+  position: absolute;
+  left: 50%;
+  bottom: 8px;
+  transform: translateX(-50%);
+  width: min(640px, 72vw);
+  padding: 5px 0;
+  background: linear-gradient(to right,
+              rgba(20, 23, 28, 0) 0%,
+              rgba(20, 23, 28, 0.5) 28%,
+              rgba(20, 23, 28, 0.5) 72%,
+              rgba(20, 23, 28, 0) 100%);
+  border: none;
+  border-radius: 0;
+  font-size: 19px;
+  letter-spacing: 0.3px;
+  color: var(--text);
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.85);
+  pointer-events: none;
+  z-index: 10;
+}
+
+.status-readout:empty {   /* nothing under the cursor (e.g. open ocean) → hide */
+  display: none;
+}
+
 /* ---------- Popup layer ---------- */
 .popup-layer {
   position: absolute;

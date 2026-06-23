@@ -15,6 +15,8 @@ const listeners = [];
 let riversVisible = true;
 let routesVisible = true;
 
+let labelsVisible = true;
+
 
 function notify() {
   for (const callback of listeners) callback();
@@ -94,3 +96,6 @@ export function setRiversVisible(v) { riversVisible = v; notify(); }
 
 export function isRoutesVisible() { return routesVisible; }
 export function setRoutesVisible(v) { routesVisible = v; notify(); }
+
+export function isLabelsVisible() { return labelsVisible; }
+export function setLabelsVisible(v) { labelsVisible = v; notify(); }
