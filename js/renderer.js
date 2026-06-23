@@ -35,7 +35,8 @@ import { getVisibleMarkers, getCategoryIcon, hitTest as markerHitTest } from "./
 import { getAnnotations, addAnnotation, hitTest as annotationHitTest } from "./annotations.js";
 import { getUIState, openMarkerPopup, openNotePopup, closePopups, setActiveTool } from "./ui.js";
 import { getVisibleCells, forEachRing, cellAt, overlayColor,
-         getVisibleRivers, getVisibleRoutes, forEachLine, getStateLabels, getProvinceLabels, riverAt } from "./map-data.js";
+         getVisibleRivers, getVisibleRoutes, forEachLine, getStateLabels, getProvinceLabels, 
+         riverAt, getStateBorders, getProvinceBorders } from "./map-data.js";
 import { getActiveOverlay, isRiversVisible, isRoutesVisible, isLabelsVisible } from "./layers.js";
 
 
@@ -85,6 +86,13 @@ const ROUTE_STYLES = {
 const LABEL_COLOR = "#1c1f26";
 const LABEL_HALO = "rgba(245, 242, 235, 0.40)";
 const LABEL_FONT = "'Amarante', system-ui, sans-serif";
+
+/** Borders */
+const STATE_BORDER_COLOR = "rgba(45, 42, 38, 0.7)";
+const STATE_BORDER_WIDTH = 1.6;
+const PROVINCE_BORDER_COLOR = "rgba(70, 64, 58, 0.4)";
+const PROVINCE_BORDER_WIDTH = 0.9;
+
 
 /**
  * Create the renderer bound to a canvas.
@@ -205,6 +213,8 @@ export function createRenderer(canvas, manifest, onViewChange) {
       ctx.fill(path);
     }
 
+    drawBorders(tl, br);
+
 
     // --- Rivers and Routes ---
     ctx.lineJoin = "round";
@@ -309,6 +319,31 @@ export function createRenderer(canvas, manifest, onViewChange) {
         ctx.stroke();
       }
     });
+  }
+
+
+  function drawBorders(tl, br) {
+    ctx.setLineDash([]);
+    ctx.lineJoin = "round";
+    if (view.scale >= 0.5) {
+      strokeBorders(getProvinceBorders(), tl, br, PROVINCE_BORDER_COLOR, PROVINCE_BORDER_WIDTH);
+    }
+    strokeBorders(getStateBorders(), tl, br, STATE_BORDER_COLOR, STATE_BORDER_WIDTH);
+  }
+
+  function strokeBorders(flat, tl, br, color, width) {
+    const path = new Path2D();
+    for (let i = 0; i < flat.length; i += 4) {
+      const ax = flat[i], ay = flat[i + 1], bx = flat[i + 2], by = flat[i + 3];
+      if ((ax < tl.x && bx < tl.x) || (ax > br.x && bx > br.x) ||
+          (ay < tl.y && by < tl.y) || (ay > br.y && by > br.y)) continue;
+      const pa = worldToScreen(ax, ay), pb = worldToScreen(bx, by);
+      path.moveTo(pa.x, pa.y);
+      path.lineTo(pb.x, pb.y);
+    }
+    ctx.strokeStyle = color;
+    ctx.lineWidth = width;
+    ctx.stroke(path);
   }
 
 

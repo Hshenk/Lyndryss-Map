@@ -6,6 +6,8 @@ const OVERLAY_ATTRIBUTE = { territory: "state", province: "province", culture: "
 let manifest = null;
 let cells = [];
 let cellBoxes = [];
+let stateBorders = []
+let provinceBorders = []
 let rivers = [];
 let riverBoxes = [];
 let routes = [];
@@ -29,6 +31,8 @@ export async function loadWorldData() {
     cells = fc.features ?? [];
 
     cellBoxes = cells.map(boundingBox);
+
+    computeBorders();
 
     // Rivers and Routes
     rivers = await loadLines(manifest.data?.rivers);
@@ -281,3 +285,34 @@ function distToSegmentSq(px, py, a, b) {
     const cx = a[0] + t * dx, cy = a[1] + t * dy;
     return (px - cx) ** 2 + (py - cy) ** 2;
 }
+
+/** Computes borders for adding thicker lines to states and provinces */
+function computeBorders() {
+    const edges = new Map();
+    for (const cell of cells) {
+        const ring = cell.geometry.coordinates[0];
+        const p = cell.properties;
+        for (let i = 0; i < ring.length - 1; i++) {
+            const a = ring[i], b = ring[i + 1];
+
+            //order-independent key so both cells hash the shared edge to one entry
+            const key = (a[0] < b[0] || (a[0] === b[0] && a[1] < b[1]))
+                ? `${a[0]}_${a[1]}_${b[0]}_${b[1]}`
+                : `${b[0]}_${b[1]}_${a[0]}_${a[1]}`;
+            const e = edges.get(key);
+            if (e) e.q = p;
+            else edges.set(key, { a, b, p });
+        }
+    }
+    const st = [], pr = [];
+    for (const e of edges.values()) {
+        if (!e.q) continue;
+        if (e.p.state !== e.q.state) st.push(e.a[0], e.a[1], e.b[0], e.b[1]);
+        if (e.p.province !== e.q.province) pr.push(e.a[0], e.a[1], e.b[0], e.b[1]);
+    }
+    stateBorders = st;
+    provinceBorders = pr;
+}
+
+export function getStateBorders() { return stateBorders; }
+export function getProvinceBorders() {return provinceBorders; }
