@@ -506,8 +506,38 @@ export function createRenderer(canvas, manifest, onViewChange) {
     const after = screenToWorld(cx, cy);
     view.x += before.x - after.x;
     view.y += before.y - after.y;
+    targetScale = view.scale;
+    if (zoomRAF !== null) { cancelAnimationFrame(zoomRAF); zoomRAF = null; }
     render();
   }
+
+
+  let targetScale = view.scale;
+  let zoomAnchor = { cx: canvas.clientWidth / 2, cy: canvas.clientHeight / 2 };
+  let zoomRAF = null;
+
+  function zoomSmooth(factor, cx = canvas.clientWidth / 2, cy = canvas.clientHeight / 2) {
+    targetScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, targetScale * factor));
+    zoomAnchor = { cx, cy };
+    if (zoomRAF === null) zoomRAF = requestAnimationFrame(zoomStep);
+  }
+
+  function zoomStep() {
+    const before = screenToWorld(zoomAnchor.cx, zoomAnchor.cy);
+    view.scale += (targetScale - view.scale) * 0.4; // lower = slower
+    if (Math.abs(targetScale - view.scale) < 0.0005) view.scale = targetScale;
+    const after = screenToWorld(zoomAnchor.cx, zoomAnchor.cy);
+    view.x += before.x - after.x;
+    view.y += before.y - after.y;
+    draw();
+    if (view.scale !== targetScale) {
+      zoomRAF = requestAnimationFrame(zoomStep);
+    } else {
+      zoomRAF = null;
+      onViewChange?.(view);
+    }
+  }
+
 
   function resetView() {
     view.x = home[0];
@@ -596,7 +626,7 @@ export function createRenderer(canvas, manifest, onViewChange) {
   canvas.addEventListener("wheel", (e) => {
     e.preventDefault(); // Don't scroll the actual page, we're trying to zoom instead
     const p = canvasPoint(e);
-    zoomBy(e.deltaY < 0 ? WHEEL_STEP : 1 / WHEEL_STEP, p.x, p.y);
+    zoomSmooth(e.deltaY < 0 ? WHEEL_STEP : 1 / WHEEL_STEP, p.x, p.y);
   }, {passive: false });
 
   // Click handling on the map
@@ -637,5 +667,5 @@ export function createRenderer(canvas, manifest, onViewChange) {
     }
   }
 
-  return { view, render, resize, worldToScreen, screenToWorld, zoomBy, resetView };
+  return { view, render, resize, worldToScreen, screenToWorld, zoomBy, zoomSmooth, resetView };
 }

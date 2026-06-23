@@ -98,10 +98,10 @@ function bindSidebarToggle() {
 // When we try to zoom the webpage, send that instead to our zoom function
 function bindZoomControls(){
   document.getElementById("zoom-in").addEventListener("click", () => {
-    renderer.zoomBy(ZOOM_STEP);
+    renderer.zoomSmooth(ZOOM_STEP);
   });
   document.getElementById("zoom-out").addEventListener("click", () => {
-    renderer.zoomBy(1 / ZOOM_STEP);
+    renderer.zoomSmooth(1 / ZOOM_STEP);
   });
   document.getElementById("zoom-reset").addEventListener("click", () => {
     renderer.resetView();
