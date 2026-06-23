@@ -357,6 +357,7 @@ function bindAnnotationTools() {
   const toolButtons = [
     document.getElementById("tool-place-icon"),
     document.getElementById("tool-place-note"),
+    document.getElementById("tool-measure"),
   ];
 
   for (const button of toolButtons) {

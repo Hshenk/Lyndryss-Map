@@ -187,11 +187,16 @@ def load_azgaar_geo(resources_dir):
     pack = data.get("pack", {})
     burgs = [b for b in pack.get("burgs", []) if isinstance(b, dict) and b.get("i")]
     poles = {"state": {}, "province": {}}
+    full = {}   # state id -> full country name, for map labels
     for key, arr in (("state", "states"), ("province", "provinces")):
         for e in pack.get(arr, []):
-            if isinstance(e, dict) and e.get("i") and e.get("pole"):
+            if not (isinstance(e, dict) and e.get("i")):
+                continue
+            if e.get("pole"):
                 poles[key][e["i"]] = e["pole"]
-    return {"burgs": burgs, "poles": poles}
+            if key == "state":
+                full[e["i"]] = e.get("fullName") or e.get("name")
+    return {"burgs": burgs, "poles": poles, "state_fullnames": full}
 
 
 def make_pixel_projector(scale, origin_x, origin_y):
@@ -524,24 +529,26 @@ def build_labels(geo, revealed, to_world, lookups):
     states/provinces that have at least one revealed cell. Names come from the
     merged lookups so curation/renaming applies here too."""
     poles = geo.get("poles", {})
+    full = geo.get("state_fullnames", {})
     revealed_states = {cells_by_id[c]["properties"].get("state") for c in revealed}
     revealed_provs = {cells_by_id[c]["properties"].get("province") for c in revealed}
 
-    def collect(key, revealed_ids):
+    def collect(key, revealed_ids, prefer):
         table = lookups.get(key, {})
         out = []
         for sid, pole in poles.get(key, {}).items():
             if sid not in revealed_ids:
                 continue
-            name = (table.get(str(sid)) or {}).get("name")
+            # States use the full country name; provinces use the short name.
+            name = prefer.get(sid) or (table.get(str(sid)) or {}).get("name")
             if not name:
                 continue
             wx, wy = to_world(pole[0], pole[1])
             out.append({"id": sid, "name": name, "x": wx, "y": wy})
         return out
 
-    return {"states": collect("state", revealed_states),
-            "provinces": collect("province", revealed_provs)}
+    return {"states": collect("state", revealed_states, full),
+            "provinces": collect("province", revealed_provs, {})}
 
 
 # ---------------------------------------------------------------------------
@@ -652,11 +659,19 @@ def cmd_build(args):
     print(f"  wrote labels.json ({len(labels['states'])} state, "
           f"{len(labels['provinces'])} province labels)")
 
-    _write_manifest(out_dir, args, revealed, revealed_ids, cells, lookups, world)
+    # Distance scale for the measuring tool: Azgaar's distanceScale is units per
+    # Azgaar px; world px = azgaar px * scale, so per-world-px = scale / args.scale.
+    settings = (_load_azgaar_json(resources) or {}).get("settings", {})
+    distance = None
+    if settings.get("distanceScale"):
+        distance = {"perPixel": float(settings["distanceScale"]) / args.scale,
+                    "unit": settings.get("distanceUnit", "mi")}
+
+    _write_manifest(out_dir, args, revealed, revealed_ids, cells, lookups, world, distance)
     print("done.")
 
 
-def _write_manifest(out_dir, args, revealed, revealed_ids, cells, lookups, world):
+def _write_manifest(out_dir, args, revealed, revealed_ids, cells, lookups, world, distance=None):
     path = os.path.join(out_dir, "manifest.json")
     prev = {}
     if os.path.exists(path):
@@ -685,6 +700,7 @@ def _write_manifest(out_dir, args, revealed, revealed_ids, cells, lookups, world
         "revealed": sorted(revealed_ids),
         "home": home,
         "bounds": [round(v, 2) for v in bounds],
+        "distance": distance,   # {perPixel, unit} for the measuring tool, or null
         "data": {
             "cells": "data/world.geojson",
             "rivers": "data/rivers.geojson",

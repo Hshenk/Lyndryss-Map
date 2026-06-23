@@ -114,6 +114,10 @@ export function createRenderer(canvas, manifest, onViewChange) {
   const home = manifest.home ?? [0,0];
   const view = { x: home[0], y: home[1], scale: 1};
 
+  // Measuring Tool
+  let measure = null;
+  let measureTracking = false;
+
   // returns an x and y adjusted to the client view window and scale
   function worldToScreen(wx, wy) {
     return {
@@ -263,6 +267,9 @@ export function createRenderer(canvas, manifest, onViewChange) {
     }
   
   drawLabels();
+
+  // Measuring Tool
+  if (measure && getUIState().activeTool === "measure") drawMeasure()
   }
 
 
@@ -331,6 +338,7 @@ export function createRenderer(canvas, manifest, onViewChange) {
     strokeBorders(getStateBorders(), tl, br, STATE_BORDER_COLOR, STATE_BORDER_WIDTH);
   }
 
+
   function strokeBorders(flat, tl, br, color, width) {
     const path = new Path2D();
     for (let i = 0; i < flat.length; i += 4) {
@@ -345,6 +353,53 @@ export function createRenderer(canvas, manifest, onViewChange) {
     ctx.lineWidth = width;
     ctx.stroke(path);
   }
+
+
+  // Measuring Tool
+  function drawMeasure() {
+    const a = worldToScreen(measure.x1, measure.y1);
+    const b = worldToScreen(measure.x2, measure.y2);
+    ctx.save();
+
+    ctx.setLineDash([6, 5]);
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(a.x, a.y);
+    ctx.lineTo(b.x, b.y);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Endpoints 
+    for (const p of [a, b]) {
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 4, 0, Math.PI * 2);
+      ctx.fillStyle = "#ffffff";
+      ctx.fill();
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = "#20242b";
+      ctx.stroke();
+    }
+
+    const dx = measure.x2 - measure.x1, dy = measure.y2 - measure.y1;
+    const dist = Math.hypot(dx, dy) * (manifest.distance?.perPixel ?? 1);
+    const unit = manifest.distance?.unit ?? "mi";
+    const label = `${Math.round(dist).toLocaleString()} ${unit}`;
+
+    const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+    ctx.font = "600 14px system-ui, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "bottom";
+    ctx.lineJoin = "round";
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = "rgba(20, 23, 28, 0.9)"; // Halo
+    ctx.strokeText(label, mx, my - 8);
+    ctx.fillStyle = "#ffffff";
+    ctx.fillText(label, mx, my - 8);
+
+    ctx.restore();
+  }
+
 
 
   // Badges 
@@ -562,6 +617,16 @@ export function createRenderer(canvas, manifest, onViewChange) {
     try{
       canvas.setPointerCapture(e.pointerId);
     } catch {}
+
+    // Measuring tool
+    // if (getUIState().activeTool === "measure") {
+    //   const w = screenToWorld(...Object.values(canvasPoint(e)));
+    //   measure = { x1: w.x, y1: w.y, x2: w.x, y2: w.y };
+    //   measureTracking = true;
+    //   render();
+    //   return; // Don't pan while tool is active
+    // }
+
     pointers.set(e.pointerId, canvasPoint(e));
     dragDistance = 0;
     if (pointers.size === 1) document.body.classList.add("is-panning");
@@ -577,6 +642,20 @@ export function createRenderer(canvas, manifest, onViewChange) {
     const river = riverAt(wpt.x, wpt.y, 5 / view.scale);
     coordsEl.textContent = describeAt(wpt, cell);
     statusEl.textContent = statusText(cell, river);
+
+    // Measuring Tool
+    // if (measuring) {
+    //   const w = screenToWorld(cur.x, cur.y);
+    //   measure.x2 = w.x;
+    //   measure.y2 = w.y;
+    //   render();
+    //   return;
+    // }
+    if (measureTracking && !pointers.has(e.pointerId)) {
+      measure.x2 = wpt.x;
+      measure.y2 = wpt.y;
+      render();
+    }
 
 
     if (!pointers.has(e.pointerId)) return; // We're hovering, not holding click
@@ -607,6 +686,10 @@ export function createRenderer(canvas, manifest, onViewChange) {
 
   // This just handles ending a pointer event for when we stop holding click
   function endPointer(e) {
+
+    // Measuring Tool
+    // if (measuring) { measuring = false; return; }
+
     pointers.delete(e.pointerId);
     if (pointers.size < 2) lastPinchDist = null;
     if (pointers.size === 0) {
@@ -633,6 +716,20 @@ export function createRenderer(canvas, manifest, onViewChange) {
   function handleClick(sx, sy) {
     const wpt = screenToWorld(sx, sy);
     const ui = getUIState();
+
+    // Measuring Tool
+    if (ui.activeTool === "measure") {
+      if (!measureTracking) {
+        measure = { x1: wpt.x, y1: wpt.y, x2: wpt.x, y2: wpt.y };
+        measureTracking = true;
+      } else {
+        measure.x2 = wpt.x;
+        measure.y2 = wpt.y;
+        measureTracking = false;
+      }
+      render();
+      return;
+    }
 
     // Placement tools (Icons and notes)
     if (ui.activeTool === "icon" || ui.activeTool === "note") {

@@ -171,6 +171,20 @@
         </ul>
       </details>
 
+      <!-- ---- Map tools ---- -->
+      <details class="sidebar-section" open>
+        <summary class="sidebar-section__title">Tools</summary>
+        <div class="annotation-tools">
+          <!-- Reuses the tool-button system (data-tool + setActiveTool). When
+               "measure" is active, the renderer turns drag into a ruler line. -->
+          <div class="annotation-tools__modes" role="group" aria-label="Map tools">
+            <button id="tool-measure" class="btn tool-btn" type="button" data-tool="measure" aria-pressed="false">
+              Measure distance
+            </button>
+          </div>
+        </div>
+      </details>
+
       <!-- ---- Player annotations ---- -->
       <details class="sidebar-section" open>
         <summary class="sidebar-section__title">Your Notes</summary>
