@@ -58,6 +58,96 @@
         </button>
       </div>
 
+      <!-- ===== Game Master (Phase 2: realtime) — floating panel ===== -->
+      <!-- A self-contained GM menu pinned top-left, independent of the sidebar so
+           both can be open at once. #gm-toggle opens/closes #gm-panel (JS:
+           bindGMToggle in 03-gm-panel-offscreen-pings.md). Inside, the login form
+           and GM tools keep the SAME ids as before, so bindGM/refreshGMUI are
+           unchanged. The toggle is visible to everyone (it's the GM's way in);
+           Row-Level Security — not the hidden tools — is the real gate. -->
+      <button id="gm-toggle" class="btn btn--icon gm-toggle" type="button"
+              aria-controls="gm-panel" aria-expanded="false" title="Game Master" aria-label="Game Master menu">
+        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+          <path d="M3 7l4 4 5-6 5 6 4-4v10H3z" fill="none" stroke="currentColor"
+                stroke-width="2" stroke-linejoin="round"/>
+        </svg>
+      </button>
+
+      <div id="gm-panel" class="gm-panel is-hidden" role="dialog" aria-label="Game Master">
+        <div class="gm-panel__header">
+          <h2 class="gm-panel__title">Game Master</h2>
+          <button id="gm-panel-close" class="btn btn--icon gm-panel__close" type="button" aria-label="Close">×</button>
+        </div>
+
+        <!-- Login form. JS: on submit call live.signIn(email, password); on
+             success swap to #gm-tools; on failure set #gm-login-error text. -->
+        <form id="gm-login" class="gm-login" autocomplete="on">
+          <p class="hint">Sign in to place live pings and tokens players see in real time.</p>
+          <label class="gm-login__field">
+            <span class="gm-login__label">Email</span>
+            <input id="gm-email" class="gm-login__input" type="email" name="email"
+                   autocomplete="username" placeholder="gm@example.com" required>
+          </label>
+          <label class="gm-login__field">
+            <span class="gm-login__label">Password</span>
+            <input id="gm-password" class="gm-login__input" type="password" name="password"
+                   autocomplete="current-password" placeholder="••••••••" required>
+          </label>
+          <button id="gm-login-submit" class="btn btn--primary gm-login__submit" type="submit">
+            Sign in
+          </button>
+          <p id="gm-login-error" class="gm-login__error is-hidden" role="alert"></p>
+        </form>
+
+        <!-- GM write tools. Hidden until sign-in. Tools reuse the existing
+             tool-button system (data-tool + setActiveTool). -->
+        <div id="gm-tools" class="gm-tools is-hidden">
+          <p class="gm-tools__status">Signed in as <span id="gm-who">—</span></p>
+
+          <div class="annotation-tools__modes" role="group" aria-label="GM live tools">
+            <button id="tool-ping" class="btn tool-btn" type="button" data-tool="ping" aria-pressed="false">
+              Drop ping
+            </button>
+            <button id="tool-token" class="btn tool-btn" type="button" data-tool="token" aria-pressed="false">
+              Place token
+            </button>
+          </div>
+
+          <!-- Token options: which icon + what color + an optional label. JS
+               (04-tokens.md): track selected icon/color/label in UI state; the
+               renderer reads them when placing a token. -->
+          <div id="token-options" class="token-options">
+            <div id="token-palette" class="icon-palette" role="group" aria-label="Token icon">
+              <button class="icon-palette__swatch is-selected" type="button" data-token-icon="skull" title="Skull">
+                <img src="assets/icons/skull.svg" alt="Skull" width="18" height="18">
+              </button>
+              <button class="icon-palette__swatch" type="button" data-token-icon="flag" title="Flag">
+                <img src="assets/icons/flag.svg" alt="Flag" width="18" height="18">
+              </button>
+              <button class="icon-palette__swatch" type="button" data-token-icon="chest" title="Treasure">
+                <img src="assets/icons/chest.svg" alt="Treasure" width="18" height="18">
+              </button>
+              <button class="icon-palette__swatch" type="button" data-token-icon="landmark" title="Landmark">
+                <img src="assets/icons/landmark.svg" alt="Landmark" width="18" height="18">
+              </button>
+              <button class="icon-palette__swatch" type="button" data-token-icon="question" title="Unknown">
+                <img src="assets/icons/question.svg" alt="Unknown" width="18" height="18">
+              </button>
+            </div>
+            <label class="token-color">
+              <span>Color</span>
+              <input id="token-color" class="token-color__input" type="color" value="#e06c5c">
+            </label>
+            <input id="token-label" class="gm-login__input token-label" type="text"
+                   placeholder="Label (optional)" maxlength="60" autocomplete="off">
+          </div>
+
+          <button id="gm-signout" class="btn btn--ghost gm-tools__signout" type="button">
+            Sign out
+          </button>
+        </div>
+      </div>
+
       <!-- Cursor world-coordinates readout. JS: update textContent on pointermove. -->
       <output id="coords-readout" class="coords-readout" aria-live="off">0, 0</output>
 
@@ -234,6 +324,10 @@
         </div>
       </details>
 
+      <!-- (Game Master controls moved out of the sidebar into a floating panel —
+           see #gm-toggle / #gm-panel inside the map viewport, so the GM can keep
+           both the sidebar and the GM tools open at once.) -->
+
       <!-- ---- Legend ---- -->
       <details class="sidebar-section">
         <summary class="sidebar-section__title">Legend</summary>
@@ -280,6 +374,21 @@
       <div class="popup__actions">
         <button class="popup__save btn btn--primary" type="button">Save</button>
         <button class="popup__delete btn btn--danger" type="button">Delete</button>
+      </div>
+    </div>
+  </template>
+
+  <!-- Token popup (Phase 2): clone, fill .popup__title (label or icon name) and
+       .popup__body, append to #popup-layer. The Remove button is GM-only — JS
+       (04-tokens.md) hides .popup__actions when not signed in, and wires
+       .popup__delete to live.removeToken(id). -->
+  <template id="tpl-token-popup">
+    <div class="popup popup--token">
+      <button class="popup__close btn btn--icon" type="button" aria-label="Close">×</button>
+      <h3 class="popup__title">Token</h3>
+      <p class="popup__body"></p>
+      <div class="popup__actions">
+        <button class="popup__delete btn btn--danger" type="button">Remove</button>
       </div>
     </div>
   </template>

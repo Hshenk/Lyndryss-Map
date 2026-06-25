@@ -763,6 +763,162 @@ body.is-placing .map-canvas {
   padding: 5px 10px;
 }
 
+/* ---- Game Master floating menu (Phase 2) ---- */
+/* Pinned inside the map viewport, top-left, just below the header. Independent
+   of the sidebar so both can be open at once. */
+.gm-toggle {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  z-index: 20;
+  box-shadow: var(--shadow);
+}
+
+.gm-toggle.is-active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.gm-panel {
+  position: absolute;
+  top: 60px;            /* sits just under the toggle button */
+  left: 16px;
+  width: 260px;
+  max-height: calc(100% - 76px);
+  overflow-y: auto;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+
+.gm-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.gm-panel__title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.gm-panel__close {
+  min-width: 24px;
+  min-height: 24px;
+  padding: 2px;
+}
+
+/* ---- Game Master panel contents (Phase 2) ---- */
+.gm-login {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 4px;
+}
+
+.gm-login__field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.gm-login__label {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.gm-login__input {
+  padding: 6px 8px;
+  font: inherit;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.gm-login__input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.gm-login__submit {
+  align-self: flex-start;
+}
+
+.gm-login__error {
+  margin: 0;
+  font-size: 12px;
+  color: var(--danger);
+}
+
+.gm-tools {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 0 4px;
+}
+
+.gm-tools__status {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.gm-tools__status #gm-who {
+  color: var(--text);
+}
+
+.gm-tools__signout {
+  align-self: flex-start;
+  font-size: 12px;
+  padding: 5px 10px;
+}
+
+/* ---- Token placement options (Phase 2) ---- */
+/* Hidden until the Place-token tool is active, so the GM menu stays just tool
+   buttons until a tool actually needs options. setActiveTool() already toggles
+   .is-active on #tool-token, so this is pure CSS (:has) — no extra JS. */
+.token-options {
+  display: none;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 4px;
+}
+
+.gm-tools:has(#tool-token.is-active) .token-options {
+  display: flex;
+}
+
+.token-color {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.token-color__input {
+  width: 40px;
+  height: 26px;
+  padding: 0;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.token-label {
+  font-size: 13px;
+}
+
 /* ---- Legend ---- */
 .legend-list {
   margin: 0;

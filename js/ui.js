@@ -37,6 +37,7 @@ import { setActiveOverlay, getActiveOverlay, setCategoryVisible, isCategoryVisib
   setRiversVisible, setRoutesVisible, setLabelsVisible } from "./layers.js";
 import { getCategories, getCategoryCount, getCategoryIcon, searchMarkers } from "./markers.js";
 import { updateAnnotation, removeAnnotation, clearAnnotations } from "./annotations.js";
+import { signIn, signOut, isGM, gmEmail, removeToken } from "./live.js";
 
 
 /**
@@ -48,6 +49,9 @@ let renderer = null;
 const state = {
   activeTool: "pan", 
   selectedIcon: "flag",
+  selectedTokenIcon: "skull",
+  selectedTokenColor: "#e06c5c",
+  tokenLabel: "",
 };
 
 
@@ -83,6 +87,9 @@ export function initUI(r) {
   bindFeatureToggles();
   bindSearch();
   bindErrorDismiss();
+  bindGM();
+  bindGMToggle();
+  bindTokenTools();
 }
 
 
@@ -153,6 +160,31 @@ export function openMarkerPopup(marker, sx, sy) {
     link.classList.remove("is-hidden");
   }
 
+
+  popup.querySelector(".popup__close").addEventListener("click", closePopups);
+  popupLayer().append(popup);
+  positionPopup(popup, sx, sy);
+}
+
+/**
+ * Open a token popup near a screen point. GM sees a remove button, Players are read only
+ */
+export function openTokenPopup(token, sx, sy) {
+  closePopups();
+  const fragment = document.getElementById("tpl-token-popup").content.cloneNode(true);
+  const popup = fragment.querySelector(".popup");
+  popup.querySelector(".popup__title").textContent = token.label || "Token";
+  popup.querySelector(".popup__body").textContent = token.icon;
+
+  const actions = popup.querySelector(".popup__actions");
+  if (isGM()) {
+    popup.querySelector(".popup__delete").addEventListener("click", () => {
+      removeToken(token.id);
+      closePopups();
+    });
+  } else {
+    actions.classList.add("is-hidden");
+  }
 
   popup.querySelector(".popup__close").addEventListener("click", closePopups);
   popupLayer().append(popup);
@@ -295,6 +327,55 @@ function buildIconToggles() {
   }
 }
 
+function bindGM() {
+  const form = document.getElementById("gm-login");
+  const errorEl = document.getElementById("gm-login-error");
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    errorEl.classList.add("is-hidden");
+    const email = document.getElementById("gm-email").value.trim();
+    const password = document.getElementById("gm-password").value;
+    const res = await signIn(email, password);
+    if (res.ok) {
+      form.reset();
+      refreshGMUI();
+    } else {
+      errorEl.textContent = res.error ?? "Sign-in failed.";
+      errorEl.classList.remove("is-hidden");
+    }
+  });
+
+  document.getElementById("gm-signout").addEventListener("click", async () => {
+    await signOut();
+    setActiveTool("pan");
+    refreshGMUI();
+  });
+}
+
+// Collapsable GM Panel
+function bindGMToggle() {
+  const toggle = document.getElementById("gm-toggle");
+  const panel = document.getElementById("gm-panel");
+  const setOpen = (open) => {
+    panel.classList.toggle("is-hidden", !open);
+    toggle.classList.toggle("is-active", open);
+    toggle.setAttribute("aria-expanded", String(open));
+  };
+
+  toggle.addEventListener("click", () => 
+    setOpen(panel.classList.contains("is-hidden")));
+  document.getElementById("gm-panel-close")
+    .addEventListener("click", () => setOpen(false));
+}
+
+export function refreshGMUI() {
+  const signedIn = isGM();
+  document.getElementById("gm-login").classList.toggle("is-hidden", signedIn);
+  document.getElementById("gm-tools").classList.toggle("is-hidden", !signedIn);
+  if (signedIn) document.getElementById("gm-who").textContent = gmEmail();
+}
+
 function bindBulkButtons() {
   const setAll = (checked) => {
     const inputs = document.querySelectorAll("#icon-toggle-list .switch__input");
@@ -319,6 +400,21 @@ function bindFeatureToggles() {
   }
 }
 
+function bindTokenTools() {
+  const swatches = document.querySelectorAll("#token-palette .icon-palette__swatch");
+  for (const s of swatches) {
+    s.addEventListener("click", () => {
+      state.selectedTokenIcon = s.dataset.tokenIcon;
+      for (const o of swatches) o.classList.toggle("is-selected", o === s);
+    });
+  }
+  document.getElementById("token-color").addEventListener("input", (e) => {
+    state.selectedTokenColor = e.target.value;
+  });
+  document.getElementById("token-label").addEventListener("input", (e) => {
+    state.tokenLabel = e.target.value;
+  });
+}
 
 // ---------- Search functions ---------- 
 function bindSearch() {
@@ -363,6 +459,8 @@ function bindAnnotationTools() {
     document.getElementById("tool-place-icon"),
     document.getElementById("tool-place-note"),
     document.getElementById("tool-measure"),
+    document.getElementById("tool-ping"),
+    document.getElementById("tool-token"),
   ];
 
   for (const button of toolButtons) {
@@ -371,6 +469,7 @@ function bindAnnotationTools() {
       setActiveTool(state.activeTool === tool ? "pan" : tool);
     });
   }
+
 
   // Exit tool with escape
   document.addEventListener("keydown", (e) => {

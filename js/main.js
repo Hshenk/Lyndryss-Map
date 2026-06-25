@@ -21,7 +21,8 @@ import { createRenderer } from "./renderer.js";
 import { loadAnnotations } from "./annotations.js";
 import { readViewFromHash, writeViewToHash, onHashChange } from "./url-state.js";
 import { onLayersChanged, setActiveOverlay, getVisibleLayerIds } from "./layers.js";
-import { initUI, showError } from "./ui.js";
+import { initUI, showError, refreshGMUI } from "./ui.js";
+import { initLive } from "./live.js";
 
 // How often to check for new map pushed to folder (In ms)
 const UPDATE_POLL_MS = 60_000;
@@ -79,6 +80,13 @@ async function init() {
     loadingOverlay.classList.add("is-hidden");
 
     window.lyndryss = { renderer, manifest };
+
+    // 6.5 Realtime session layer
+    initLive(() => {
+      renderer.render();
+      refreshGMUI();
+    }).catch((err) => console.warn("live layer failed (map still works):", err));
+    refreshGMUI();
 
     // 7. Prompt the user if the GM has updated the map
     setInterval(async () => {

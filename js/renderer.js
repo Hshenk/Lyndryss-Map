@@ -1,65 +1,15 @@
-/**
- * renderer.js — the hand-rolled canvas renderer: viewport state, coordinate
- * transforms, pan/zoom input, and the draw loop.
- *
- * Coordinate systems:
- *   world px  — fixed map space; world (0,0) = top-left corner of tile (0,0)
- *   screen px — CSS pixels relative to the canvas; multiply by
- *               devicePixelRatio when sizing the canvas backing store
- *
- * Viewport state:
- *   { x, y, scale } where (x, y) is the world point at the canvas center and
- *   scale = screen px per world px (clamped to MIN_SCALE..MAX_SCALE).
- *
- *   worldToScreen: sx = (wx - view.x) * scale + canvasW / 2
- *   screenToWorld: wx = (sx - canvasW / 2) / scale + view.x
- *
- * Draw order per frame:
- *   1. clear
- *   2. base tiles in view (loop the visible tile-coord range, getTileImage())
- *   3. enabled overlay layers at OVERLAY_ALPHA
- *   4. GM markers for enabled categories (markers.js provides the list)
- *   5. player annotations (annotations.js provides the list)
- *
- * Input to handle on the canvas (pointer events; touch-action is disabled
- * in CSS so you own gestures):
- *   - drag to pan (add body.is-panning while dragging for the cursor)
- *   - wheel to zoom centered on the cursor
- *   - pinch to zoom (track two pointers)
- *   - click → forward to markers.js hit-test / annotation placement,
- *     depending on the active tool (ui.js owns tool state)
- */
-
-import { MIN_SCALE, MAX_SCALE } from "./config.js";
+import { MIN_SCALE, MAX_SCALE, PING_LIFETIME_MS } from "./config.js";
 import { getVisibleMarkers, getCategoryIcon, hitTest as markerHitTest } from "./markers.js";
 import { getAnnotations, addAnnotation, hitTest as annotationHitTest } from "./annotations.js";
-import { getUIState, openMarkerPopup, openNotePopup, closePopups, setActiveTool } from "./ui.js";
+import { getUIState, openMarkerPopup, openNotePopup, openTokenPopup, closePopups, setActiveTool } from "./ui.js";
 import { getVisibleCells, forEachRing, cellAt, overlayColor,
          getVisibleRivers, getVisibleRoutes, forEachLine, getStateLabels, getProvinceLabels, 
          riverAt, getStateBorders, getProvinceBorders } from "./map-data.js";
 import { getActiveOverlay, isRiversVisible, isRoutesVisible, isLabelsVisible } from "./layers.js";
+import { getPings, sendPing, getTokens, placeToken, moveToken, tokenAt, isGM } from "./live.js";
 
 
 
-/**
- * @typedef {Object} Viewport
- * @property {number} x world px at canvas center
- * @property {number} y world px at canvas center
- * @property {number} scale screen px per world px
- */
-
-/**
- * @typedef {Object} Renderer
- * @property {Viewport} view
- * @property {() => void} render            draw one frame (cheap to call; coalesce with rAF)
- * @property {() => void} resize            re-measure container, fix devicePixelRatio, redraw
- * @property {(wx: number, wy: number) => {x: number, y: number}} worldToScreen
- * @property {(sx: number, sy: number) => {x: number, y: number}} screenToWorld
- * @property {(factor: number, cx?: number, cy?: number) => void} zoomBy
- *           multiply scale by factor, keeping screen point (cx, cy) fixed
- *           (defaults to canvas center)
- * @property {() => void} resetView         back to tile (0,0) at scale 1
- */
 
 
 /** Radius of the round badge markers/annotations are drawn in. */
@@ -92,6 +42,12 @@ const STATE_BORDER_COLOR = "rgba(45, 42, 38, 0.7)";
 const STATE_BORDER_WIDTH = 1.6;
 const PROVINCE_BORDER_COLOR = "rgba(70, 64, 58, 0.4)";
 const PROVINCE_BORDER_WIDTH = 0.9;
+
+
+// GM Tools
+const PING_COLOR = "#ffd24a";
+const TOKEN_RADIUS = 13;
+
 
 
 /**
@@ -265,11 +221,25 @@ export function createRenderer(canvas, manifest, onViewChange) {
     for (const a of getAnnotations()) {
       drawBadge(a.x, a.y, `assets/icons/${a.icon}.svg`, ANNOTATION_RING);
     }
-  
-  drawLabels();
 
-  // Measuring Tool
-  if (measure && getUIState().activeTool === "measure") drawMeasure()
+    for (const token of getTokens()) drawToken(token);
+
+    // Draw pings
+    const nowMs = Date.now();
+    for (const ping of getPings()) {
+      if (!drawOffscreenPing(ping, nowMs, w, h)) drawPing(ping, nowMs);
+    }
+  
+    drawLabels();
+
+    // Measuring Tool
+    if (measure && getUIState().activeTool === "measure") drawMeasure()
+
+    // Pings
+    if (getPings().length > 0 && !frameRequested) {
+      frameRequested = true; 
+      requestAnimationFrame(draw);    
+    }
   }
 
 
@@ -435,6 +405,93 @@ export function createRenderer(canvas, manifest, onViewChange) {
     const icon = getIcon(iconPath);
     if (icon) ctx.drawImage(icon, p.x - 8, p.y -8 , 16, 16);
   }
+
+  // --- Pings ---
+  function drawPing(ping, now) {
+    const p = worldToScreen(ping.x, ping.y);
+    const t = Math.min((now - ping.created_at) / PING_LIFETIME_MS, 1);
+    const r = 6 + t * 34; // Ring grows outward
+    const alpha = 1 - t; // and fades out
+
+    ctx.globalAlpha = alpha;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+    ctx.strokeStyle = PING_COLOR;
+    ctx.lineWidth = 3;
+    ctx.stroke();
+
+    ctx.beginPath(); // Solid center dot
+    ctx.arc(p.x, p.y, 4, 0, Math.PI * 2);
+    ctx.fillStyle = PING_COLOR;
+    ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+
+  function edgePoint(px, py, w, h, margin) {
+    const cx = w / 2;
+    const cy = h / 2;
+    const dx = px - cx;
+    const dy = py - cy;
+    if (dx === 0 && dy === 0) return null;
+
+    const halfW = w / 2 - margin;
+    const halfH = h / 2 - margin;
+    const scale = 1 / Math.max(Math.abs(dx) / halfW, Math.abs(dy) / halfH);
+
+    return { x: cx + dx * scale, y: cy + dy * scale, angle: Math.atan2(dy, dx) };
+  }
+
+  // Draw an edge arrow pointing toward off screen pings. Return true if off screen, and thus handled
+  function drawOffscreenPing(ping, now, w, h) {
+    const p = worldToScreen(ping.x, ping.y);
+    const onScreen = p.x >= 0 && p.x <= w && p.y >= 0 && p.y <=h;
+    if (onScreen) return false;
+
+    const e = edgePoint(p.x, p.y, w, h, 22);
+    if (!e) return true;
+
+    const t = Math.min((now - ping.created_at) / PING_LIFETIME_MS, 1);
+    const pulse = 0.7 + 0.3 * Math.sin(now / 140);
+
+    ctx.save();
+    ctx.translate(e.x, e.y);
+    ctx.rotate(e.angle);
+    ctx.globalAlpha = (1 - t) * pulse;
+
+    ctx.beginPath();
+    ctx.moveTo(13, 0);
+    ctx.lineTo(-7, -9);
+    ctx.lineTo(-7, 9);
+    ctx.closePath();
+    ctx.fillStyle = PING_COLOR;
+    ctx.fill();
+
+    ctx.restore();
+    ctx.globalAlpha = 1;
+    return true;
+  }
+
+  // --- GM Tokens ---
+  function drawToken(token) {
+    const p = worldToScreen(token.x, token.y);
+    const r = TOKEN_RADIUS;
+    if (p.x < -r || p.y < -r || p.x > canvas.clientWidth + r || p.y > canvas.clientHeight + r) {
+      return;
+    }
+
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba( 20, 23, 28, 0.85)";
+    ctx.fill();
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = token.color || "#e06c5c";
+    ctx.stroke();
+
+    const icon = getIcon(`assets/icons/${token.icon}.svg`);
+    if (icon) ctx.drawImage(icon, p.x - 9, p.y - 9, 18, 18);
+  }
+
+
 
   // --- Burgs ---
   /** Determine if the settlement is large enough by population to display in current scale */
@@ -611,6 +668,8 @@ export function createRenderer(canvas, manifest, onViewChange) {
   const pointers = new Map();
   let dragDistance = 0;
   let lastPinchDist = null;
+  let draggingToken = null;
+  let tokenGrabOrigin = null;
 
   canvas.addEventListener("pointerdown", (e) => {
     // Keep receiving move/up for this pointer even if it leaves the canvas.
@@ -618,14 +677,18 @@ export function createRenderer(canvas, manifest, onViewChange) {
       canvas.setPointerCapture(e.pointerId);
     } catch {}
 
-    // Measuring tool
-    // if (getUIState().activeTool === "measure") {
-    //   const w = screenToWorld(...Object.values(canvasPoint(e)));
-    //   measure = { x1: w.x, y1: w.y, x2: w.x, y2: w.y };
-    //   measureTracking = true;
-    //   render();
-    //   return; // Don't pan while tool is active
-    // }
+    // Let the GM grab a token
+    if (isGM() && getUIState().activeTool === "pan") {
+      const cp = canvasPoint(e);
+      const w = screenToWorld(cp.x, cp.y);
+      const grab = tokenAt(w.x, w.y, (TOKEN_RADIUS + 4) / view.scale);
+      if (grab) {
+        draggingToken = grab;
+        tokenGrabOrigin = { x: grab.x, y: grab.y };
+        closePopups();
+        return;
+      }
+    }
 
     pointers.set(e.pointerId, canvasPoint(e));
     dragDistance = 0;
@@ -643,14 +706,6 @@ export function createRenderer(canvas, manifest, onViewChange) {
     coordsEl.textContent = describeAt(wpt, cell);
     statusEl.textContent = statusText(cell, river);
 
-    // Measuring Tool
-    // if (measuring) {
-    //   const w = screenToWorld(cur.x, cur.y);
-    //   measure.x2 = w.x;
-    //   measure.y2 = w.y;
-    //   render();
-    //   return;
-    // }
     if (measureTracking && !pointers.has(e.pointerId)) {
       measure.x2 = wpt.x;
       measure.y2 = wpt.y;
@@ -658,10 +713,21 @@ export function createRenderer(canvas, manifest, onViewChange) {
     }
 
 
+    // Dragging a token (GM)
+    if (draggingToken) {
+      const w = screenToWorld(cur.x, cur.y);
+      draggingToken.x = w.x;
+      draggingToken.y = w.y;
+      render();
+      return;
+    }
+
+
     if (!pointers.has(e.pointerId)) return; // We're hovering, not holding click
 
     const prev = pointers.get(e.pointerId);
     pointers.set(e.pointerId, cur); 
+
 
     if (pointers.size === 1) {
       // Drag-to-pan. Screen moves right, world center moves left
@@ -687,8 +753,28 @@ export function createRenderer(canvas, manifest, onViewChange) {
   // This just handles ending a pointer event for when we stop holding click
   function endPointer(e) {
 
-    // Measuring Tool
-    // if (measuring) { measuring = false; return; }
+    // Token Dragging (GM)
+    if (draggingToken) {
+      const movedScreen = Math.hypot(
+        draggingToken.x - tokenGrabOrigin.x,
+        draggingToken.y - tokenGrabOrigin.y,
+      ) * view.scale;
+
+      if (movedScreen < CLICK_SLOP) {
+        // Barely moved -> count as a click
+        draggingToken.x = tokenGrabOrigin.x;
+        draggingToken.y = tokenGrabOrigin.y;
+        const p = worldToScreen(draggingToken.x, draggingToken.y);
+        openTokenPopup(draggingToken, p.x, p.y);
+        render();
+      } else {
+        moveToken(draggingToken.id, draggingToken.x, draggingToken.y); // send to database to persist 
+      }
+
+      draggingToken = null;
+      tokenGrabOrigin = null;
+      return;
+    }
 
     pointers.delete(e.pointerId);
     if (pointers.size < 2) lastPinchDist = null;
@@ -731,6 +817,19 @@ export function createRenderer(canvas, manifest, onViewChange) {
       return;
     }
 
+
+    // GM live ping
+    if (ui.activeTool === "ping") {
+      sendPing(wpt.x, wpt.y);
+      return;
+    }
+
+    // GM tokens
+    if (ui.activeTool === "token") {
+      placeToken(wpt.x, wpt.y, ui.selectedTokenIcon, ui.selectedTokenColor, ui.tokenLabel);
+      return;
+    }
+
     // Placement tools (Icons and notes)
     if (ui.activeTool === "icon" || ui.activeTool === "note") {
       const annotation = {
@@ -751,6 +850,12 @@ export function createRenderer(canvas, manifest, onViewChange) {
 
     // Normal click
     const radius = (BADGE_RADIUS + 4) / view.scale;
+    const token = tokenAt(wpt.x, wpt.y, radius);
+    if (token) {
+      const p = worldToScreen(token.x, token.y);
+      openTokenPopup(token, p.x, p.y);
+      return;
+    }
     const annotation = annotationHitTest(wpt.x, wpt.y, radius);
     if (annotation) {
       const p = worldToScreen(annotation.x, annotation.y);
