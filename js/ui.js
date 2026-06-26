@@ -222,6 +222,36 @@ export function openNotePopup(annotation, sx, sy) {
 
 
 
+export function openRevealPopup(info, sx, sy, onConfirm) {
+  closePopups();
+  const fragment = document.getElementById("tpl-reveal-popup").content.cloneNode(true);
+  const popup = fragment.querySelector(".popup");
+
+  const cells = `${info.count} cell${info.count === 1 ? "" : "s"}`;
+  const now = info.currentLevel === 0 ? "hidden" : `level ${info.currentLevel}`;
+  popup.querySelector(".reveal-popup__info").textContent = 
+    `${info.label} · ${cells} · currently ${now}`;
+  
+  // pre-select the current level (or 1 if hidden)
+  const buttons = popup.querySelectorAll(".reveal-level");
+  let selected = info.currentLevel || 1;
+  const mark = () => buttons.forEach((b) =>
+    b.classList.toggle("is-selected", Number(b.dataset.level) === selected));
+  for (const b of buttons) {
+    b.addEventListener("click", () => { selected = Number(b.dataset.level); mark(); });
+  }
+  mark();
+
+  popup.querySelector(".reveal-popup__confirm").addEventListener("click", () => {
+    onConfirm(selected);
+    closePopups();
+  });
+  popup.querySelector(".popup__close").addEventListener("click", closePopups);
+
+  popupLayer().append(popup);
+  positionPopup(popup, sx, sy);
+}
+
 
 function bindErrorDismiss() {
   document.getElementById("error-banner-dismiss").addEventListener("click", () => {

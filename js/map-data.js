@@ -13,6 +13,9 @@ let riverBoxes = [];
 let routes = [];
 let routeBoxes = [];
 let labels = { states: [], provinces: [] };
+let liveBorderCells = [];
+let stateBordersFaded = [];
+let provinceBordersFaded = [];
 
 /**
  * Fetch the manifest, then call GeoJSON it points to. 
@@ -289,7 +292,8 @@ function distToSegmentSq(px, py, a, b) {
 /** Computes borders for adding thicker lines to states and provinces */
 function computeBorders() {
     const edges = new Map();
-    for (const cell of cells) {
+    const all = liveBorderCells.length ? cells.concat(liveBorderCells) : cells;
+    for (const cell of all) {
         const ring = cell.geometry.coordinates[0];
         const p = cell.properties;
         for (let i = 0; i < ring.length - 1; i++) {
@@ -304,18 +308,26 @@ function computeBorders() {
             else edges.set(key, { a, b, p });
         }
     }
-    const st = [], pr = [];
+
+    const st = [], pr = [], stF = [], prF = [];
     for (const e of edges.values()) {
-        if (!e.q) continue;
-        if (e.p.state !== e.q.state) st.push(e.a[0], e.a[1], e.b[0], e.b[1]);
-        if (e.p.province !== e.q.province) pr.push(e.a[0], e.a[1], e.b[0], e.b[1]);
+        if (!e.q) continue; // Outer edge
+        // static cells have no _rev so are treated as revealed.
+        const both = (e.p._rev !== false) && (e.q._rev !== false);
+
+        if (e.p.state != null && e.q.state != null && e.p.state !== e.q.state)
+        (both ? st : stF).push(e.a[0], e.a[1], e.b[0], e.b[1]);
+        if (e.p.province != null && e.q.province != null && e.p.province !== e.q.province)
+        (both ? pr : prF).push(e.a[0], e.a[1], e.b[0], e.b[1]);
     }
-    stateBorders = st;
-    provinceBorders = pr;
+    stateBorders = st; provinceBorders = pr;
+    stateBordersFaded = stF; provinceBordersFaded = prF;
 }
 
 export function getStateBorders() { return stateBorders; }
-export function getProvinceBorders() {return provinceBorders; }
+export function getStateBordersFaded() { return stateBordersFaded; }
+export function getProvinceBorders() { return provinceBorders; }
+export function getProvinceBordersFaded() { return provinceBordersFaded; }
 
 /** Marge Revealed-cell palette entries into the live overlay palettes */
 export function mergeOverlays(partial) {
@@ -324,4 +336,10 @@ export function mergeOverlays(partial) {
         manifest.overlays[dim] = manifest.overlays[dim] || {};
         Object.assign(manifest.overlays[dim], partial[dim]);
     }
+}
+
+/** --- Live Borders --- */
+export function setLiveBorderCells(extra) {
+    liveBorderCells = extra;
+    computeBorders();
 }

@@ -31,7 +31,7 @@ import {
   SESSION_ID,
   PING_LIFETIME_MS,
 } from "./config.js";
-import { forEachRing, mergeOverlays } from "./map-data.js";
+import { forEachRing, mergeOverlays, forEachLine, setLiveBorderCells } from "./map-data.js";
 
 
 
@@ -47,9 +47,11 @@ let tokenChannel = null;
 let liveCells = [];
 let revealChannel = null;
 let revealedCells = new Set();
-
-
-
+let liveRivers = [];
+let liveRoutes = [];
+let cellLevels = new Map();
+let liveStateLabels = { solid: [], faded: []};
+let liveProvinceLabels = { solid: [], faded: [] };
 
 
 
@@ -59,14 +61,12 @@ function configured() {
 }
 
 
-async function fetchAll(table, columns, orderCol) {
+async function pageAll(makeQuery) {
   // Supabase caps a request at ~1000 rows. Page through them all
   const PAGE = 1000;
   const out = [];
   for (let from = 0; ; from += PAGE) {
-    const { data, error } = await supabase
-      .from(table).select(columns).order(orderCol, { ascending: true })
-      .range(from, from + PAGE - 1);
+    const { data, error } = await makeQuery().range(from, from + PAGE - 1);
     if (error) { console.warn("reveal fetch failed:", error.message); break; }
     out.push(...(data ?? []));
     if (!data || data.length < PAGE) break; // last page
@@ -299,13 +299,49 @@ export function gmEmail() {
 //   --- Region/Province Data ---
 async function refreshRevealed() {
   if (!supabase) return;
-  const rc = await fetchAll("revealed_cells", "cell_id", "cell_id");
-  revealedCells = new Set(rc.map((r) => r.cell_id));
 
-  // GM gets every hidden cell
-  const rows = await fetchAll("hidden_cells", "data, id", "id");
-  liveCells = rows.map((row) => prepCell(row.data));
+  // GM full detail
+  if (isGM()) {
+    const levels = await pageAll(() => 
+      supabase.from("revealed_cells").select("cell_id, level").order("cell_id"));
+    const levelByCell = new Map(levels.map((r) => [r.cell_id, r.level]));
+    revealedCells = new Set(levelByCell.keys());
+    cellLevels = levelByCell;
 
+    const rows = await pageAll(() => 
+      supabase.from("hidden_cells").select("data, id").order("id"));
+    liveCells = rows.map((row) => {
+      const f = prepCell(row.data);
+      f._level = levelByCell.get(row.id) ?? 0;
+      return f;
+    });
+  } else {
+    // Players: returns only revealed cells, stripped to their level.
+    const rows = await pageAll(() => supabase.rpc("get_visible_cells").order("id"));
+    liveCells = rows.map((row) => prepCell(row.data));
+    revealedCells = new Set(liveCells.map((c) => c.properties.id));
+    cellLevels = new Map(liveCells.map((c) => [c.properties.id, c.properties.level]));
+  }
+
+
+  mergeLiveOverlays();
+  
+  // Labels and borders
+  for (const c of liveCells)
+    c.properties._rev = (cellLevels.get(c.properties.id) ?? 0) >= 3;
+  setLiveBorderCells(liveCells); // GM passes all; players pass only revealed
+  computeLiveLabels();
+
+  // Rivers and Routes
+  const lineRows = await pageAll(() => 
+    supabase.from("hidden_lines").select("kind, cell_id, min_level, data").order("id"));
+  liveRivers = lineRows.filter((r) => r.kind === "river").map(prepLine);
+  liveRoutes = lineRows.filter((r) => r.kind === "route").map(prepLine);
+
+  notifyChange();
+}
+
+function mergeLiveOverlays() {
   // Fold each revealed cell's baked palette entries into the live overlays
   const merged = {};
   for (const cell of liveCells) {
@@ -317,9 +353,6 @@ async function refreshRevealed() {
     }
   }
   mergeOverlays(merged);
-
-
-  notifyChange();
 }
 
 export function getLiveCells() {
@@ -347,16 +380,30 @@ function cellsInScope(cell, scope) {
   return liveCells.filter((c) => c.properties[key] === val);
 }
 
-// Reveal or unreveal a scope around the clicked cell
-export async function revealScope(cell, scope, on) {
+// Set a discovery level for a scope around the clicked cell
+export async function revealScope(cell, scope, level) {
   if (!supabase) return;
   const ids = cellsInScope(cell, scope).map((c) => c.properties.id);
-  if (on) {
-    await supabase.from("revealed_cells")
-      .upsert(ids.map((id) => ({ cell_id: id})), { onConflict: "cell_id", ignoreDuplicates: true });
-  } else {
+  if (!level || level <= 0) {
     await supabase.from("revealed_cells").delete().in("cell_id", ids);
+  } else {
+    await supabase.from("revealed_cells")
+      .upsert(ids.map((id) => ({ cell_id: id, level })), { onConflict: "cell_id" });
   }
+}
+
+function regionName(cell, dim) {
+  const id = cell.properties[dim];
+  return cell._meta?.[dim]?.[String(id)]?.name ?? `${dim} ${id}`;
+}
+
+export function scopeInfo(cell, scope) {
+  const count = cellsInScope(cell, scope).length;
+  let label;
+  if (scope === "cell")          label = `Cell #${cell.properties.id}`;
+  else if (scope === "province") label = `Province: ${regionName(cell, "province")}`;
+  else                           label = `State: ${regionName(cell, "state")}`;
+  return { label, count, currentLevel: cell._level ?? 0 };
 }
 
 
@@ -386,3 +433,62 @@ function prepCell(f) {
   f._bbox = { minX, minY, maxX, maxY };
   return f;
 }
+
+function prepLine(row) {
+  const f = row.data;
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  forEachLine(f.geometry, (coords) => {
+    for (const [x, y] of coords) {
+      if (x < minX) minX = x; if (x > maxX) maxX = x;
+      if (y < minY) minY = y; if (y > maxY) maxY = y;
+    }
+  });
+  f._bbox = { minX, minY, maxX, maxY };
+  f._cell = row.cell_id;
+  f._min = row.min_level;
+  return f;
+}
+
+export function getLiveRivers() { return liveRivers; }
+export function getLiveRoutes() { return liveRoutes; }
+export function lineRevealed(seg) {
+  return (cellLevels.get(seg._cell) ?? 0) >= seg._min;
+}
+
+
+// --- Labels ---
+function labelsByDim(dim) {
+  const groups = new Map();
+  for (const cell of liveCells) {
+    const id = cell.properties[dim];
+    if (id == null) continue;
+    const b = cell._bbox;
+    const cx = (b.minX + b.maxX) / 2;
+    const cy = (b.minY + b.maxY) / 2;
+    const revealed = (cellLevels.get(cell.properties.id) ?? 0) >= 3;
+
+    let g = groups.get(id);
+    if (!g) { g = { name: regionName(cell, dim), aX: 0, aY: 0, aN: 0, rX: 0, rY: 0, rN: 0 };
+                  groups.set(id, g); }
+    g.aX += cx; g.aY += cy; g.aN += 1;                  // All Cells
+    if (revealed) { g.rX += cx; g.rY += cy; g.rN += 1}  // Revealed Only
+  }
+
+  const solid = [], faded = [];
+  for (const g of groups.values()) {
+    if (!g.name) continue;
+    if (g.rN > 0) solid.push({ name: g.name, x: g.rX / g.rN, y: g.rY / g.rN });
+    else          faded.push({ name: g.name, x: g.aX / g.aN, y: g.aY / g.aN })
+  }
+  return { solid, faded };
+}
+
+function computeLiveLabels() {
+  liveStateLabels = labelsByDim("state");
+  liveProvinceLabels = labelsByDim("province");
+}
+
+export function getLiveStateLabels() { return liveStateLabels.solid; }
+export function getLiveStateLabelsFaded() { return liveStateLabels.faded; }
+export function getLiveProvinceLabels() { return liveProvinceLabels.solid; }
+export function getLiveProvinceLabelsFaded() { return liveProvinceLabels.faded; }

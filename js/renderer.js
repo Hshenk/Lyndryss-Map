@@ -1,13 +1,14 @@
 import { MIN_SCALE, MAX_SCALE, PING_LIFETIME_MS } from "./config.js";
 import { getVisibleMarkers, getCategoryIcon, hitTest as markerHitTest } from "./markers.js";
 import { getAnnotations, addAnnotation, hitTest as annotationHitTest } from "./annotations.js";
-import { getUIState, openMarkerPopup, openNotePopup, openTokenPopup, closePopups, setActiveTool } from "./ui.js";
+import { getUIState, openMarkerPopup, openNotePopup, openTokenPopup, closePopups, setActiveTool, openRevealPopup } from "./ui.js";
 import { getVisibleCells, forEachRing, cellAt, overlayColor,
          getVisibleRivers, getVisibleRoutes, forEachLine, getStateLabels, getProvinceLabels, 
-         riverAt, getStateBorders, getProvinceBorders } from "./map-data.js";
+         riverAt, getStateBorders, getStateBordersFaded, getProvinceBorders, getProvinceBordersFaded } from "./map-data.js";
 import { getActiveOverlay, isRiversVisible, isRoutesVisible, isLabelsVisible } from "./layers.js";
 import { getPings, sendPing, getTokens, placeToken, moveToken, tokenAt, getLiveCells,
-         isCellRevealed, liveCellAt, revealScope, isGM } from "./live.js";
+         isCellRevealed, liveCellAt, revealScope, isGM, scopeInfo, getLiveRivers, getLiveRoutes,
+        lineRevealed, getLiveProvinceLabels, getLiveProvinceLabelsFaded, getLiveStateLabels, getLiveStateLabelsFaded } from "./live.js";
 
 
 
@@ -159,20 +160,6 @@ export function createRenderer(canvas, manifest, onViewChange) {
     const br = screenToWorld(w, h);
     const overlay = getActiveOverlay(); // Will be null, or "territory/culture/religion"
 
-    // --- base map: FROM BEFORE DATA STORED IN SUPABASE
-    // for (const cell of getVisibleCells(tl.x, tl.y, br.x, br.y)) {
-    //   const path = cellPath(cell);
-
-    //   let fill = cell.properties.fill ?? "#444";
-    //   const isWater = cell.properties.type === "ocean" || cell.properties.type === "lake";
-
-    //   // Active map-mode
-    //   if (overlay && !isWater && cellInMode(cell, overlay)) {
-    //     fill = overlayColor(cell, overlay) ?? fill;
-    //   }
-    //   ctx.fillStyle = fill;
-    //   ctx.fill(path);
-    // }
 
     // Draw all of the provinces that have been revealed to our client
     for (const cell of getVisibleCells(tl.x, tl.y, br.x, br.y)) paintCell(cell, overlay);
@@ -204,6 +191,14 @@ export function createRenderer(canvas, manifest, onViewChange) {
         drawRiver(river);
       }
 
+      for (const seg of getLiveRivers()) {
+        const b = seg._bbox;
+        if (b.maxX < tl.x || b.minX > br.x || b.maxY < tl.y || b.minY > br.y) continue;
+        ctx.globalAlpha = lineRevealed(seg) ? 1 : 0.35;
+        drawLiveRiver(seg);
+      }
+      ctx.globalAlpha = 1;
+
       // Re-cover lakes so rivers passing over them don't show
       for (const cell of getVisibleCells(tl.x, tl.y, br.x, br.y)) {
         if (cell.properties.type === "lake") {
@@ -221,6 +216,15 @@ export function createRenderer(canvas, manifest, onViewChange) {
         ctx.lineWidth = s.width;
         ctx.setLineDash(s.dash);
         ctx.stroke(linePath(route));
+      }
+      for (const seg of getLiveRoutes()) {
+        const b = seg._bbox;
+        if (b.maxX < tl.x || b.minX > br.x || b.maxY < tl.y || b.minY > br.y) continue;
+        const s = ROUTE_STYLES[seg.properties.group] ?? ROUTE_STYLES.trails;
+        ctx.strokeStyle = s.color;
+        ctx.lineWidth = s.width;
+        ctx.setLineDash(s.dash);
+        ctx.stroke(linePath(seg));
       }
     }
 
@@ -259,9 +263,12 @@ export function createRenderer(canvas, manifest, onViewChange) {
     }
   }
 
-
+  const MODE_MIN_LEVEL = { heightmap: 2, territory: 3, province: 3, culture: 4, religion: 4 };
   function cellInMode(cell, mode) {
-    return true; // Placeholder for later levels-of-discovery feature 
+    // A cell only participates in a map mode once its level of discovery reaches that mode's threshold
+    const lvl = cell.properties.level;
+    if (lvl == null) return true; 
+    return lvl >= (MODE_MIN_LEVEL[mode] ?? 1);
   }
 
   /**
@@ -284,13 +291,24 @@ export function createRenderer(canvas, manifest, onViewChange) {
   /** Fill one cell with its base color, or the overlay color when a mode is active */
   function paintCell(cell, overlay) {
     const path = cellPath(cell);
-    let fill = cell.properties.fill ?? "#444";
+    let fill = cell.properties.fill ?? "#444";  // No fill (level 1) fills as grey silhouette
     const isWater = cell.properties.type === "ocean" || cell.properties.type === "lake";
-    if (overlay && !isWater && cellInMode(cell, overlay)) {
-      fill = overlayColor(cell, overlay) ?? fill;
+
+
+    if (overlay && !isWater) {
+      if (cellInMode(cell, overlay)) {
+        fill = overlayColor(cell, overlay) ?? fill;
+      } else if (cell.properties.level != null) {
+        fill = "#444";                         // Live cell below this mode's level
+      }
     }
     ctx.fillStyle = fill;
     ctx.fill(path);
+
+    // Hairline separator per cell
+    ctx.lineWidth = 0.5;
+    ctx.strokeStyle = "rgba(20, 23, 28, 0.22)";
+    ctx.stroke(path);
   }
 
   /** Build a Path2D of a line feature */
@@ -327,6 +345,25 @@ export function createRenderer(canvas, manifest, onViewChange) {
     });
   }
 
+  function drawLiveRiver(feature) {
+    const p = feature.properties;
+    const sourceW = 0.5;
+    const mouthW = Math.min(8, sourceW + Math.sqrt(p.discharge ?? 0) * 0.23 * (p.widthFactor ?? 1));
+    const ts = p._t;
+    forEachLine(feature.geometry, (coords) => {
+      for (let i = 0; i < coords.length - 1; i++){
+        const a = worldToScreen(coords[i][0], coords[i][1]);
+        const b = worldToScreen(coords[i + 1][0], coords[i + 1][1]);
+        const t = ts ? ts[i] : 1;
+        ctx.lineWidth = Math.max(0.4, (sourceW + (mouthW - sourceW) * t) * view.scale);
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
+        ctx.stroke()
+      }
+    });
+  }
+
 
   function drawBorders(tl, br) {
     ctx.setLineDash([]);
@@ -335,6 +372,15 @@ export function createRenderer(canvas, manifest, onViewChange) {
       strokeBorders(getProvinceBorders(), tl, br, PROVINCE_BORDER_COLOR, PROVINCE_BORDER_WIDTH);
     }
     strokeBorders(getStateBorders(), tl, br, STATE_BORDER_COLOR, STATE_BORDER_WIDTH);
+
+    if (isGM()) {
+      ctx.globalAlpha = 0.4;
+      if (view.scale >= 0.5) {
+        strokeBorders(getProvinceBordersFaded(), tl, br, PROVINCE_BORDER_COLOR, PROVINCE_BORDER_WIDTH);
+      }
+      strokeBorders(getStateBordersFaded(), tl, br, STATE_BORDER_COLOR, STATE_BORDER_WIDTH);
+      ctx.globalAlpha = 1;
+    }
   }
 
 
@@ -598,8 +644,24 @@ export function createRenderer(canvas, manifest, onViewChange) {
     ctx.textBaseline = "middle";
     ctx.lineJoin = "round";
 
-    if (plan.states) for (const l of getStateLabels()) drawLabel(l.name, l.x, l.y, 25, 700);
-    if (plan.provinces) for (const l of getProvinceLabels()) drawLabel(l.name, l.x, l.y, 12, 600);
+    if (plan.states) {
+      for (const l of getStateLabels()) drawLabel(l.name, l.x, l.y, 25, 700);
+      for (const l of getLiveStateLabels()) drawLabel(l.name, l.x, l.y, 25, 700);
+      if (isGM()) {
+        ctx.globalAlpha = 0.4;
+        for (const l of getLiveStateLabelsFaded()) drawLabel(l.name, l.x, l.y, 25, 700);
+        ctx.globalAlpha = 1;
+      }
+    }
+    if (plan.provinces) {
+      for (const l of getProvinceLabels()) drawLabel(l.name, l.x, l.y, 12, 600);
+      for (const l of getLiveProvinceLabels()) drawLabel(l.name, l.x, l.y, 12, 600);
+      if (isGM()) {
+        ctx.globalAlpha = 0.4;
+        for (const l of getLiveProvinceLabelsFaded()) drawLabel(l.name, l.x, l.y, 12, 600);
+        ctx.globalAlpha = 1;
+      }
+    }
     if (plan.burgs) {
       for (const m of getVisibleMarkers()) {
         if (m.category !== "settlements") continue;
@@ -859,12 +921,15 @@ export function createRenderer(canvas, manifest, onViewChange) {
       return;
     }
 
-    // GM Reveal Tool
+    // GM Reveal Tool - Open Menu
     const REVEAL_SCOPE = { "reveal-cell": "cell", "reveal-province": "province", "reveal-state": "state" };
     const scope = REVEAL_SCOPE[ui.activeTool];
     if (scope) {
       const cell = liveCellAt(wpt.x, wpt.y);
-      if (cell) revealScope(cell, scope, !isCellRevealed(cell));
+      if (cell) {
+        openRevealPopup(scopeInfo(cell, scope), sx, sy,
+          (level) => revealScope(cell, scope, level));
+      }
       return;
     }
 

@@ -474,6 +474,59 @@ def _flush_run(out, run, source, keep_props):
         })
 
 
+def build_hidden_lines(features, grid, project, keep_props, kind, min_level,
+                       static_revealed, taper=False):
+    """Split rivers/routes into PER-CELL segments for the hidden (not statically
+    revealed) cells. Each segment is tagged with its cell + the discovery level
+    needed to show it (river=2, route=3), so it can be gated individually by RLS —
+    a river only appears in cells revealed far enough, never leaking the shape of
+    unrevealed land. Mirrors build_lines but cuts a new segment whenever the
+    nearest cell changes (boundary vertex shared so segments still meet).
+
+    When taper=True (rivers), each vertex also carries `_t` — its position along
+    the WHOLE river (0 source → 1 mouth) — so the client can restore the source→
+    mouth taper even though the river is drawn as disjoint per-cell segments."""
+    rows = []
+    for f in features:
+        props = {k: f["properties"].get(k) for k in keep_props}
+        geom = f["geometry"]
+        lines = ([geom["coordinates"]] if geom["type"] == "LineString"
+                 else geom["coordinates"])
+        for line in lines:
+            n = len(line)
+            cur, run, run_t = None, [], []
+            for i, (x, y) in enumerate(line):
+                cell = grid.nearest_cell(x, y)
+                pt = project(x, y)
+                t = min(1.0, i / (n - 2)) if (taper and n > 2) else 1.0  # along-river 0..1
+                if cell != cur:
+                    if cur is not None:
+                        run.append(pt); run_t.append(t)        # close the run at the boundary
+                        _flush_hidden_line(rows, run, run_t, cur, kind, min_level,
+                                           props, static_revealed, taper)
+                    cur, run, run_t = cell, [pt], [t]          # start the next cell's run here
+                else:
+                    run.append(pt); run_t.append(t)
+            if cur is not None:
+                _flush_hidden_line(rows, run, run_t, cur, kind, min_level,
+                                   props, static_revealed, taper)
+    return rows
+
+
+def _flush_hidden_line(rows, run, run_t, cell, kind, min_level, props, static_revealed, taper):
+    # Skip statically-revealed cells — their lines already ship in data/.
+    if len(run) >= 2 and cell not in static_revealed:
+        p = dict(props)
+        if taper:
+            p["_t"] = [round(t, 4) for t in run_t]   # per-vertex along-river position
+        rows.append({
+            "kind": kind, "cell_id": cell, "min_level": min_level,
+            "data": {"type": "Feature",
+                     "geometry": {"type": "LineString", "coordinates": run},
+                     "properties": p},
+        })
+
+
 def burg_note(b):
     """A short human description for a settlement popup, led by its burg group."""
     pop = int(round((b.get("population") or 0) * 1000))
@@ -834,38 +887,59 @@ def cmd_upload(args):
     print(f"hidden cells: {len(rows)} across {len(regions)} {args.by}(s) "
           f"(everything not in the static reveal)")
 
+    # Rivers/routes split per cell for live reveal, gated by discovery level
+    # (rivers show at level >= 2, routes at >= 3). Same clip math as build_lines.
+    grid = CentroidGrid(cells)
+    line_rows = []
+    rivers_path = find_latest(resources, "Rivers")
+    routes_path = find_latest(resources, "Routes")
+    if rivers_path:
+        line_rows += build_hidden_lines(
+            load_features(rivers_path), grid, project,
+            ("id", "name", "type", "sourceWidth", "widthFactor", "discharge"),
+            "river", 2, static_revealed, taper=True)
+    if routes_path:
+        line_rows += build_hidden_lines(
+            load_features(routes_path), grid, project,
+            ("id", "group", "name"), "route", 3, static_revealed)
+    n_river = sum(1 for r in line_rows if r["kind"] == "river")
+    print(f"hidden line segments: {len(line_rows)} "
+          f"({n_river} river, {len(line_rows) - n_river} route)")
+
     if args.dry_run:
-        # Write into resources/ (gitignored) — this preview holds the SECRET
-        # hidden-region data and must never land in the committed data/ folder.
-        # NOTE: the name must NOT contain an export keyword (Cells/Markers/...),
-        # or find_latest() would later mistake it for an Azgaar export — globbing
-        # is case-insensitive on Windows, so "hidden_cells…" matched "*Cells*".
-        preview = os.path.join(resources, "upload-preview.json")
-        _write_json(preview, rows)
-        print(f"dry run: wrote {preview} ({len(rows)} rows), nothing uploaded")
+        # Previews go in resources/ (gitignored) — they hold SECRET hidden data and
+        # must never land in committed data/. Names avoid export keywords so
+        # find_latest() (case-insensitive on Windows) won't mistake them for exports.
+        _write_json(os.path.join(resources, "upload-preview.json"), rows)
+        _write_json(os.path.join(resources, "upload-lines-preview.json"), line_rows)
+        print(f"dry run: wrote previews to resources/ "
+              f"({len(rows)} cells, {len(line_rows)} line segments), nothing uploaded")
         return
 
-    # Replace the table contents: clear, then insert in batches. (id>=0 matches
-    # every row; PostgREST requires a filter to allow DELETE.)
+    _replace_table(url, key, "hidden_cells", rows)
+    _replace_table(url, key, "hidden_lines", line_rows)
+    print("done. hidden cells + lines synced; reveal from the map (or set "
+          "revealed_cells levels) to show them.")
+
+
+def _replace_table(url, key, table, rows):
+    """Clear a table then bulk-insert rows in batches (a full publish of that set).
+    id>=0 matches every row; PostgREST requires a filter to allow DELETE."""
     status, msg = _supabase_request(
-        "DELETE", f"{url}/rest/v1/hidden_cells?id=gte.0", key,
+        "DELETE", f"{url}/rest/v1/{table}?id=gte.0", key,
         extra_headers={"Prefer": "return=minimal"})
     if status >= 300:
-        sys.exit(f"error: clearing hidden_cells failed ({status}): {msg}")
+        sys.exit(f"error: clearing {table} failed ({status}): {msg}")
 
     BATCH = 1000
     for i in range(0, len(rows), BATCH):
         chunk = rows[i:i + BATCH]
         status, msg = _supabase_request(
-            "POST", f"{url}/rest/v1/hidden_cells", key, body=chunk,
+            "POST", f"{url}/rest/v1/{table}", key, body=chunk,
             extra_headers={"Prefer": "return=minimal"})
         if status >= 300:
-            sys.exit(f"error: insert batch starting at {i} failed ({status}): {msg}")
-        print(f"  uploaded {min(i + BATCH, len(rows))}/{len(rows)}")
-
-    print("done. Reveal a region live with: "
-          "insert into revealed_regions (region_id, kind) values (<id>, "
-          f"'{args.by}');")
+            sys.exit(f"error: insert into {table} (batch at {i}) failed ({status}): {msg}")
+        print(f"  {table}: uploaded {min(i + BATCH, len(rows))}/{len(rows)}")
 
 
 def cmd_emit_lookups(args):

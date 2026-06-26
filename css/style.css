@@ -889,6 +889,56 @@ body.is-placing .map-canvas {
   gap: 6px;
 }
 
+/* ---- Reveal level popup (05e-2) ---- */
+.popup--reveal {
+  width: 230px;
+}
+
+.reveal-popup__info {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.reveal-popup__levels {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 8px 0;
+}
+
+.reveal-level {
+  text-align: left;
+  padding: 6px 8px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--panel-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: border-color var(--ease), background var(--ease);
+}
+
+.reveal-level:hover {
+  border-color: var(--text-muted);
+}
+
+.reveal-level.is-selected {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.reveal-level--hide {
+  color: var(--danger);
+}
+
+.reveal-level--hide.is-selected {
+  background: rgba(224, 108, 92, 0.18);
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
 /* ---- Token placement options (Phase 2) ---- */
 /* Hidden until the Place-token tool is active, so the GM menu stays just tool
    buttons until a tool actually needs options. setActiveTool() already toggles
