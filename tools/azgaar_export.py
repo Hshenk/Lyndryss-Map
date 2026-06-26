@@ -408,32 +408,36 @@ def base_fill(props, lookups):
     return BIOME_DEFAULTS.get(biome, ("?", "#888888"))[1]
 
 
+def _cell_to_feature(f, project, lookups, lake_names):
+    """One Azgaar cell -> the trimmed, world-px GeoJSON Feature the renderer draws.
+    Shared by the static build (build_cells) and the hidden-cell upload (cmd_upload)
+    so live-revealed cells are byte-for-byte the same shape as static ones."""
+    p = f["properties"]
+    props = {
+        "id": p["id"],
+        "type": p.get("type"),
+        "height": p.get("height"),
+        "biome": p.get("biome"),
+        "state": p.get("state"),
+        "province": p.get("province"),
+        "culture": p.get("culture"),
+        "religion": p.get("religion"),
+        "fill": base_fill(p, lookups),
+    }
+    if p["id"] in lake_names:
+        props["name"] = lake_names[p["id"]]
+    return {
+        "type": "Feature",
+        "geometry": project_geometry(f["geometry"], project),
+        "properties": props,
+    }
+
+
 def build_cells(cells, revealed, project, lookups, lake_names):
     """world.geojson: revealed cells, world-px, trimmed props + baked base fill.
     Lake cells get a `name` (their feature name) when a Full export supplied it."""
-    out = []
-    for f in cells:
-        if f["properties"]["id"] not in revealed:
-            continue
-        p = f["properties"]
-        props = {
-            "id": p["id"],
-            "type": p.get("type"),
-            "height": p.get("height"),
-            "biome": p.get("biome"),
-            "state": p.get("state"),
-            "province": p.get("province"),
-            "culture": p.get("culture"),
-            "religion": p.get("religion"),
-            "fill": base_fill(p, lookups),
-        }
-        if p["id"] in lake_names:
-            props["name"] = lake_names[p["id"]]
-        out.append({
-            "type": "Feature",
-            "geometry": project_geometry(f["geometry"], project),
-            "properties": props,
-        })
+    out = [_cell_to_feature(f, project, lookups, lake_names)
+           for f in cells if f["properties"]["id"] in revealed]
     return {"type": "FeatureCollection", "features": out}
 
 
@@ -581,6 +585,26 @@ def build_palette(cells, revealed, key, lookups):
     return pal
 
 
+# Overlay dimensions baked into each hidden cell so it's self-describing on reveal.
+META_DIMS = ("biome", "state", "province", "culture", "religion")
+
+
+def _cell_overlay_meta(props, full):
+    """Per-cell {dimension: {id: {name,color}}} for this cell's own overlay ids.
+    A trimmed static manifest omits hidden regions' palette entries, so each hidden
+    cell carries its own — the client merges them into manifest.overlays when the
+    cell is revealed, lighting up names + overlay colors + hover."""
+    meta = {}
+    for dim in META_DIMS:
+        v = props.get(dim)
+        if v is None:
+            continue
+        entry = full.get(dim, {}).get(str(v))
+        if entry:
+            meta.setdefault(dim, {})[str(v)] = entry
+    return meta
+
+
 # ---------------------------------------------------------------------------
 # Commands
 # ---------------------------------------------------------------------------
@@ -720,6 +744,130 @@ def _write_manifest(out_dir, args, revealed, revealed_ids, cells, lookups, world
           f"home {home}, {len(revealed)} cells)")
 
 
+# ---------------------------------------------------------------------------
+# Live reveal: upload hidden regions to Supabase (Phase 2, milestone 05b)
+# ---------------------------------------------------------------------------
+
+def _supabase_request(method, url, key, body=None, extra_headers=None):
+    """Minimal PostgREST call over stdlib urllib. Returns (status, text)."""
+    import urllib.request
+    import urllib.error
+    data = json.dumps(body).encode("utf-8") if body is not None else None
+    req = urllib.request.Request(url, data=data, method=method)
+    req.add_header("apikey", key)
+    req.add_header("Authorization", f"Bearer {key}")
+    req.add_header("Content-Type", "application/json")
+    for k, v in (extra_headers or {}).items():
+        req.add_header(k, v)
+    try:
+        with urllib.request.urlopen(req) as resp:
+            return resp.status, resp.read().decode("utf-8")
+    except urllib.error.HTTPError as e:
+        return e.code, e.read().decode("utf-8")
+
+
+def cmd_upload(args):
+    """Push the NOT-statically-revealed regions' cells into Supabase `hidden_cells`,
+    where RLS keeps them secret until the GM reveals the region live. Reuses the
+    exact static reveal logic, so what ships in git and what's uploaded never
+    overlap. Credentials come from env vars (the secret key bypasses RLS to write;
+    never commit it):
+        SUPABASE_URL          e.g. https://abcd.supabase.co   (same as config.js)
+        SUPABASE_SERVICE_KEY  the SECRET key (sb_secret_... / service_role)
+    """
+    url = (os.environ.get("SUPABASE_URL") or "").rstrip("/")
+    key = os.environ.get("SUPABASE_SERVICE_KEY")
+    if not args.dry_run and (not url or not key):
+        sys.exit("error: set SUPABASE_URL and SUPABASE_SERVICE_KEY env vars "
+                 "(the SECRET key — never commit it). Use --dry-run to preview "
+                 "without uploading.")
+
+    resources = args.resources
+    cells_path = find_latest(resources, "Cells")
+    markers_path = find_latest(resources, "Markers")
+    if not cells_path or not markers_path:
+        sys.exit(f"error: need Cells + Markers exports in {resources}")
+    cells = load_features(cells_path)
+    markers = load_features(markers_path)
+
+    # Static reveal set (same logic as build): these ship in git, so they are the
+    # regions we must NOT upload — only what's hidden goes to Supabase.
+    if args.reveal_all:
+        revealed_ids = set()
+    elif args.reveal is not None:
+        revealed_ids = set(args.reveal)
+    else:
+        revealed_ids = set(_read_manifest_revealed(args.out))
+    static_revealed = compute_revealed_cells(cells, revealed_ids, args.by, args.coast_ring)
+
+    cal = derive_deg_to_pixel(markers)
+    project = make_projector(cal, args.scale, args.origin_x, args.origin_y)
+    lookups = merge_lookups(_load_lookups(args.lookups, args.out),
+                            load_azgaar_tables(resources))
+    lake_names = load_lake_names(resources)
+
+    # Full overlay palettes (every id), so each hidden cell can carry the name +
+    # color for its own biome/state/province/culture/religion — merged into
+    # manifest.overlays on reveal (the trimmed static manifest omits them).
+    global cells_by_id
+    cells_by_id = {f["properties"]["id"]: f for f in cells}
+    all_ids = set(cells_by_id.keys())
+    full = {dim: build_palette(cells, all_ids, dim, lookups) for dim in META_DIMS}
+
+    rows = []
+    for f in cells:
+        if f["properties"]["id"] in static_revealed:
+            continue                          # already public via git — not hidden
+        region_id = f["properties"].get(args.by)
+        if not region_id:                     # 0 / None => water or neutral, no region
+            continue
+        feat = _cell_to_feature(f, project, lookups, lake_names)
+        feat["_meta"] = _cell_overlay_meta(f["properties"], full)   # self-describing on reveal
+        rows.append({
+            "id": f["properties"]["id"],
+            "region_id": region_id,
+            "kind": args.by,
+            "data": feat,
+        })
+
+    regions = sorted({r["region_id"] for r in rows})
+    print(f"hidden cells: {len(rows)} across {len(regions)} {args.by}(s) "
+          f"(everything not in the static reveal)")
+
+    if args.dry_run:
+        # Write into resources/ (gitignored) — this preview holds the SECRET
+        # hidden-region data and must never land in the committed data/ folder.
+        # NOTE: the name must NOT contain an export keyword (Cells/Markers/...),
+        # or find_latest() would later mistake it for an Azgaar export — globbing
+        # is case-insensitive on Windows, so "hidden_cells…" matched "*Cells*".
+        preview = os.path.join(resources, "upload-preview.json")
+        _write_json(preview, rows)
+        print(f"dry run: wrote {preview} ({len(rows)} rows), nothing uploaded")
+        return
+
+    # Replace the table contents: clear, then insert in batches. (id>=0 matches
+    # every row; PostgREST requires a filter to allow DELETE.)
+    status, msg = _supabase_request(
+        "DELETE", f"{url}/rest/v1/hidden_cells?id=gte.0", key,
+        extra_headers={"Prefer": "return=minimal"})
+    if status >= 300:
+        sys.exit(f"error: clearing hidden_cells failed ({status}): {msg}")
+
+    BATCH = 1000
+    for i in range(0, len(rows), BATCH):
+        chunk = rows[i:i + BATCH]
+        status, msg = _supabase_request(
+            "POST", f"{url}/rest/v1/hidden_cells", key, body=chunk,
+            extra_headers={"Prefer": "return=minimal"})
+        if status >= 300:
+            sys.exit(f"error: insert batch starting at {i} failed ({status}): {msg}")
+        print(f"  uploaded {min(i + BATCH, len(rows))}/{len(rows)}")
+
+    print("done. Reveal a region live with: "
+          "insert into revealed_regions (region_id, kind) values (<id>, "
+          f"'{args.by}');")
+
+
 def cmd_emit_lookups(args):
     """Scaffold data/lookups.template.json from every id present in the export."""
     resources = args.resources
@@ -822,6 +970,30 @@ def main():
     b.add_argument("--markers", action="store_true",
                    help="also regenerate markers.json from Azgaar POI markers")
     b.set_defaults(func=cmd_build)
+
+    u = sub.add_parser("upload", parents=[res_arg],
+                       help="push hidden (not-statically-revealed) regions to Supabase "
+                            "for live reveal")
+    u.add_argument("--out", default=os.path.join(ROOT, "data"),
+                   help="data folder, to read manifest 'revealed' + lookups (default data/)")
+    ug = u.add_mutually_exclusive_group()
+    ug.add_argument("--reveal", type=int, nargs="*",
+                    help="statically-revealed region IDs to EXCLUDE (default: manifest 'revealed')")
+    ug.add_argument("--reveal-all", action="store_true",
+                    help="treat everything as statically revealed (uploads nothing)")
+    u.add_argument("--by", choices=["state", "province"], default="state",
+                   help="what a region ID refers to — must match your build + manifest (default: state)")
+    u.add_argument("--coast-ring", dest="coast_ring", action="store_true",
+                   default=True, help="match the build's coast-ring setting (default on)")
+    u.add_argument("--no-coast-ring", dest="coast_ring", action="store_false")
+    u.add_argument("--scale", type=float, default=1.0, help="world px per Azgaar px (match build)")
+    u.add_argument("--origin-x", type=float, default=0.0, help="match build")
+    u.add_argument("--origin-y", type=float, default=0.0, help="match build")
+    u.add_argument("--lookups", default=None,
+                   help="names/colors file (default: <out>/lookups.json if present)")
+    u.add_argument("--dry-run", action="store_true",
+                   help="write data/hidden_cells.preview.json instead of uploading")
+    u.set_defaults(func=cmd_upload)
 
     e = sub.add_parser("emit-lookups", parents=[res_arg],
                        help="scaffold the names/colors table to edit")

@@ -882,6 +882,13 @@ body.is-placing .map-canvas {
   padding: 5px 10px;
 }
 
+/* ---- GM reveal tools (Phase 2): stacked, full-width (long labels) ---- */
+.reveal-tools {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
 /* ---- Token placement options (Phase 2) ---- */
 /* Hidden until the Place-token tool is active, so the GM menu stays just tool
    buttons until a tool actually needs options. setActiveTool() already toggles

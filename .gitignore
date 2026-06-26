@@ -3,6 +3,8 @@
 resources/
 .claude/
 docs/
+tools/__pycache__
+
 
 # OS junk
 Thumbs.db

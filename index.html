@@ -113,6 +113,23 @@
             </button>
           </div>
 
+          <!-- Reveal tools (05c): with one active, the GM sees unrevealed cells
+               dimmed (prep view) and clicks to reveal at that scope — the cell,
+               its whole province, or its whole state. Clicking an already-revealed
+               cell un-reveals that scope. (A reveal-LEVEL menu lands with graded
+               levels later; the click target stays the same.) -->
+          <div class="reveal-tools" role="group" aria-label="GM reveal tools">
+            <button id="tool-reveal-cell" class="btn tool-btn" type="button" data-tool="reveal-cell" aria-pressed="false">
+              Reveal cell
+            </button>
+            <button id="tool-reveal-province" class="btn tool-btn" type="button" data-tool="reveal-province" aria-pressed="false">
+              Reveal full province
+            </button>
+            <button id="tool-reveal-state" class="btn tool-btn" type="button" data-tool="reveal-state" aria-pressed="false">
+              Reveal full state
+            </button>
+          </div>
+
           <!-- Token options: which icon + what color + an optional label. JS
                (04-tokens.md): track selected icon/color/label in UI state; the
                renderer reads them when placing a token. -->

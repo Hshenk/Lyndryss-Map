@@ -31,22 +31,9 @@ import {
   SESSION_ID,
   PING_LIFETIME_MS,
 } from "./config.js";
+import { forEachRing } from "./map-data.js";
 
 
-
-/**
- * @typedef {Object} Ping
- * @property {string} id          uuid from the DB
- * @property {number} x           world px
- * @property {number} y           world px
- * @property {number} created_at  epoch ms when it landed (for the fade/expand anim)
- */
-
-/**
- * @typedef {Object} GMSession
- * @property {boolean} signedIn
- * @property {string} [email]
- */
 
 let supabase = null; // the client
 let pings = [];
@@ -56,9 +43,35 @@ let notifyChange = () => {};
 let tokens = [];
 let tokenChannel = null;
 
+// Province Data
+let liveCells = [];
+let revealChannel = null;
+let revealedCells = new Set();
+
+
+
+
+
+
 function configured() {
   return !SUPABASE_URL.includes("YOUR-PROJECT")
       && !SUPABASE_PUBLISHABLE_KEY.includes("YOUR-PUBLISHABLE");
+}
+
+
+async function fetchAll(table, columns, orderCol) {
+  // Supabase caps a request at ~1000 rows. Page through them all
+  const PAGE = 1000;
+  const out = [];
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await supabase
+      .from(table).select(columns).order(orderCol, { ascending: true })
+      .range(from, from + PAGE - 1);
+    if (error) { console.warn("reveal fetch failed:", error.message); break; }
+    out.push(...(data ?? []));
+    if (!data || data.length < PAGE) break; // last page
+  }
+  return out;
 }
 
 
@@ -81,7 +94,7 @@ export async function initLive(onChange) {
   if (existing) session = { signedIn: true, email: existing.user.email };
   supabase.auth.onAuthStateChange((_event, s) => {
     session = s ? { signedIn: true, email: s.user.email } : { signedIn: false };
-    notifyChange();
+    refreshRevealed();
   });
 
   // Loads pings that are still within their lifetime
@@ -126,6 +139,22 @@ export async function initLive(onChange) {
       },
     )
     .subscribe();
+  
+
+  // Cell/Province Data
+  await refreshRevealed();
+  revealChannel = supabase
+    .channel("revealed_cells")
+    .on("postgres_changes",
+      { event: "*", schema: "public", table: "revealed_cells" },
+      () => refreshRevealed())
+    .subscribe();
+  
+  // GM reads all hidden cells
+  supabase.auth.onAuthStateChange((_event, s) => {
+    session = s ? { signedIn: true, email: s.user.email } : { signedIn: false };
+    refreshRevealed();
+  });
 }
 
 
@@ -264,4 +293,93 @@ export function isGM() {
 
 export function gmEmail() {
   return session.email ?? "";
+}
+
+
+//   --- Region/Province Data ---
+async function refreshRevealed() {
+  if (!supabase) return;
+  const rc = await fetchAll("revealed_cells", "cell_id", "cell_id");
+  revealedCells = new Set(rc.map((r) => r.cell_id));
+
+  // Gem gets every hidden cell
+  const rows = await fetchAll("hidden_cells", "data, id", "id");
+  liveCells = rows.map((row) => prepCell(row.data));
+  notifyChange();
+}
+
+export function getLiveCells() {
+  return liveCells;
+}
+
+export function isCellRevealed(cell) {
+  return revealedCells.has(cell.properties.id);
+}
+
+// Checks if region is under click
+export function liveCellAt(wx, wy) {
+  for (const cell of liveCells) {
+    const b = cell._bbox;
+    if (wx < b.minX || wx > b.maxX || wy < b.minY || wy > b.maxY) continue;
+    if (pointInFeature(cell, wx, wy)) return cell;
+  }
+  return null;
+}
+
+function cellsInScope(cell, scope) {
+  if (scope === "cell") return [cell];
+  const key = scope === "province" ? "province" : "state";
+  const val = cell.properties[key];
+  return liveCells.filter((c) => c.properties[key] === val);
+}
+
+// Reveal or unreveal a scope around the clicked cell
+export async function revealScope(cell, scope, on) {
+  if (!supabase) return;
+  const ids = cellsInScope(cell, scope).map((c) => c.properties.id);
+  if (on) {
+    await supabase.from("revealed_cells")
+      .upsert(ids.map((id) => ({ cell_id: id})), { onConflict: "cell_id", ignoreDuplicates: true });
+  } else {
+    await supabase.from("revealed_cells").delete().in("cell_id", ids);
+  }
+}
+
+
+export async function toggleReveal(cell) {
+  if (!supabase) return;
+  if (isCellRevealed(cell)) {
+    await supabase.from("revealed_regions")
+      .delete().eq("region_id", cell._region).eq("kind", cell._kind);
+  } else {
+    await supabase.from("revealed_regions")
+      .insert({ region_id: cell._region, kind: cell._kind });
+  }
+}
+
+
+function pointInFeature(cell, x, y) {
+  let inside = false;
+  forEachRing(cell.geometry, (ring) => {
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const xi = ring[i][0], yi = ring[i][1];
+      const xj = ring[j][0], yj = ring[j][1];
+      const crosses = ((yi > y) !== (yj > y)) &&
+        (x < ((xj - xi) * (y - yi)) / (yj - yi) + xi);
+      if (crosses) inside = !inside;
+    }
+  });
+  return inside;
+}
+
+function prepCell(f) {
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  forEachRing(f.geometry, (ring) => {
+    for (const [x, y] of ring) {
+      if (x < minX) minX = x; if (x > maxX) maxX = x;
+      if (y < minY) minY = y; if (y > maxY) maxY = y;
+    }
+  });
+  f._bbox = { minX, minY, maxX, maxY };
+  return f;
 }

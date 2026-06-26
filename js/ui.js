@@ -461,6 +461,9 @@ function bindAnnotationTools() {
     document.getElementById("tool-measure"),
     document.getElementById("tool-ping"),
     document.getElementById("tool-token"),
+    document.getElementById("tool-reveal-cell"),
+    document.getElementById("tool-reveal-province"),
+    document.getElementById("tool-reveal-state"),
   ];
 
   for (const button of toolButtons) {

@@ -6,7 +6,8 @@ import { getVisibleCells, forEachRing, cellAt, overlayColor,
          getVisibleRivers, getVisibleRoutes, forEachLine, getStateLabels, getProvinceLabels, 
          riverAt, getStateBorders, getProvinceBorders } from "./map-data.js";
 import { getActiveOverlay, isRiversVisible, isRoutesVisible, isLabelsVisible } from "./layers.js";
-import { getPings, sendPing, getTokens, placeToken, moveToken, tokenAt, isGM } from "./live.js";
+import { getPings, sendPing, getTokens, placeToken, moveToken, tokenAt, getLiveCells,
+         isCellRevealed, liveCellAt, revealScope, isGM } from "./live.js";
 
 
 
@@ -158,19 +159,35 @@ export function createRenderer(canvas, manifest, onViewChange) {
     const br = screenToWorld(w, h);
     const overlay = getActiveOverlay(); // Will be null, or "territory/culture/religion"
 
-    // --- base map: fill each visible cell with its baked color
-    for (const cell of getVisibleCells(tl.x, tl.y, br.x, br.y)) {
-      const path = cellPath(cell);
+    // --- base map: FROM BEFORE DATA STORED IN SUPABASE
+    // for (const cell of getVisibleCells(tl.x, tl.y, br.x, br.y)) {
+    //   const path = cellPath(cell);
 
-      let fill = cell.properties.fill ?? "#444";
-      const isWater = cell.properties.type === "ocean" || cell.properties.type === "lake";
+    //   let fill = cell.properties.fill ?? "#444";
+    //   const isWater = cell.properties.type === "ocean" || cell.properties.type === "lake";
 
-      // Active map-mode
-      if (overlay && !isWater && cellInMode(cell, overlay)) {
-        fill = overlayColor(cell, overlay) ?? fill;
+    //   // Active map-mode
+    //   if (overlay && !isWater && cellInMode(cell, overlay)) {
+    //     fill = overlayColor(cell, overlay) ?? fill;
+    //   }
+    //   ctx.fillStyle = fill;
+    //   ctx.fill(path);
+    // }
+
+    // Draw all of the provinces that have been revealed to our client
+    for (const cell of getVisibleCells(tl.x, tl.y, br.x, br.y)) paintCell(cell, overlay);
+
+    const gm = isGM();
+    for (const cell of getLiveCells()) {
+      const b = cell._bbox;
+      if (b.maxX < tl.x || b.minX > br.x || b.maxY < tl.y || b.minY > br.y) continue;
+      if (isCellRevealed(cell)) {
+        paintCell(cell, overlay);
+      } else if (gm) {
+        ctx.globalAlpha = 0.35; // Partially hidden to indicate it is a hidden tile
+        paintCell(cell,overlay);
+        ctx.globalAlpha = 1;
       }
-      ctx.fillStyle = fill;
-      ctx.fill(path);
     }
 
     drawBorders(tl, br);
@@ -262,6 +279,18 @@ export function createRenderer(canvas, manifest, onViewChange) {
       path.closePath();
     });
     return path;
+  }
+
+  /** Fill one cell with its base color, or the overlay color when a mode is active */
+  function paintCell(cell, overlay) {
+    const path = cellPath(cell);
+    let fill = cell.properties.fill ?? "#444";
+    const isWater = cell.properties.type === "ocean" || cell.properties.type === "lake";
+    if (overlay && !isWater && cellInMode(cell, overlay)) {
+      fill = overlayColor(cell, overlay) ?? fill;
+    }
+    ctx.fillStyle = fill;
+    ctx.fill(path);
   }
 
   /** Build a Path2D of a line feature */
@@ -827,6 +856,15 @@ export function createRenderer(canvas, manifest, onViewChange) {
     // GM tokens
     if (ui.activeTool === "token") {
       placeToken(wpt.x, wpt.y, ui.selectedTokenIcon, ui.selectedTokenColor, ui.tokenLabel);
+      return;
+    }
+
+    // GM Reveal Tool
+    const REVEAL_SCOPE = { "reveal-cell": "cell", "reveal-province": "province", "reveal-state": "state" };
+    const scope = REVEAL_SCOPE[ui.activeTool];
+    if (scope) {
+      const cell = liveCellAt(wpt.x, wpt.y);
+      if (cell) revealScope(cell, scope, !isCellRevealed(cell));
       return;
     }
 
