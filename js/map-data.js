@@ -316,3 +316,12 @@ function computeBorders() {
 
 export function getStateBorders() { return stateBorders; }
 export function getProvinceBorders() {return provinceBorders; }
+
+/** Marge Revealed-cell palette entries into the live overlay palettes */
+export function mergeOverlays(partial) {
+    manifest.overlays = manifest.overlays || {};
+    for (const dim in partial) {
+        manifest.overlays[dim] = manifest.overlays[dim] || {};
+        Object.assign(manifest.overlays[dim], partial[dim]);
+    }
+}

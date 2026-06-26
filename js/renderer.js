@@ -730,7 +730,7 @@ export function createRenderer(canvas, manifest, onViewChange) {
 
     // Coordinate readout (World coordinates that are under the cursor).
     const wpt = screenToWorld(cur.x, cur.y);
-    const cell = cellAt(wpt.x, wpt.y);
+    const cell = cellAt(wpt.x, wpt.y) ?? liveCellAt(wpt.x, wpt.y);
     const river = riverAt(wpt.x, wpt.y, 5 / view.scale);
     coordsEl.textContent = describeAt(wpt, cell);
     statusEl.textContent = statusText(cell, river);

@@ -31,7 +31,7 @@ import {
   SESSION_ID,
   PING_LIFETIME_MS,
 } from "./config.js";
-import { forEachRing } from "./map-data.js";
+import { forEachRing, mergeOverlays } from "./map-data.js";
 
 
 
@@ -302,9 +302,23 @@ async function refreshRevealed() {
   const rc = await fetchAll("revealed_cells", "cell_id", "cell_id");
   revealedCells = new Set(rc.map((r) => r.cell_id));
 
-  // Gem gets every hidden cell
+  // GM gets every hidden cell
   const rows = await fetchAll("hidden_cells", "data, id", "id");
   liveCells = rows.map((row) => prepCell(row.data));
+
+  // Fold each revealed cell's baked palette entries into the live overlays
+  const merged = {};
+  for (const cell of liveCells) {
+    const m = cell._meta;
+    if (!m) continue;
+    for (const dim in m) {
+      merged[dim] = merged[dim] || {};
+      Object.assign(merged[dim], m[dim]);
+    }
+  }
+  mergeOverlays(merged);
+
+
   notifyChange();
 }
 
@@ -316,7 +330,7 @@ export function isCellRevealed(cell) {
   return revealedCells.has(cell.properties.id);
 }
 
-// Checks if region is under click
+// Checks if cell is under click
 export function liveCellAt(wx, wy) {
   for (const cell of liveCells) {
     const b = cell._bbox;
@@ -345,17 +359,6 @@ export async function revealScope(cell, scope, on) {
   }
 }
 
-
-export async function toggleReveal(cell) {
-  if (!supabase) return;
-  if (isCellRevealed(cell)) {
-    await supabase.from("revealed_regions")
-      .delete().eq("region_id", cell._region).eq("kind", cell._kind);
-  } else {
-    await supabase.from("revealed_regions")
-      .insert({ region_id: cell._region, kind: cell._kind });
-  }
-}
 
 
 function pointInFeature(cell, x, y) {
