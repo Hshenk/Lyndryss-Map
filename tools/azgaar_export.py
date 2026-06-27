@@ -371,16 +371,20 @@ class CentroidGrid:
 # Reveal set
 # ---------------------------------------------------------------------------
 
-def compute_revealed_cells(cells, revealed_ids, by, coast_ring):
-    """Set of cell ids to publish: cells whose `by` field is in revealed_ids,
-    optionally plus a one-ring border of neighboring water cells so coastlines
-    render cleanly. revealed_ids empty => reveal everything."""
+def compute_revealed_cells(cells, region_ids, by, coast_ring,
+                           reveal_cells=None, reveal_all=False):
+    """Set of cell ids to publish: cells whose `by` field is in region_ids, PLUS
+    any explicit reveal_cells ids, optionally plus a one-ring border of neighboring
+    water cells so coastlines render cleanly. reveal_all=True returns every cell."""
     by_id = {f["properties"]["id"]: f for f in cells}
-    if not revealed_ids:
+    if reveal_all:
         return set(by_id)
 
+    region_ids = region_ids or set()
     chosen = {cid for cid, f in by_id.items()
-              if f["properties"].get(by) in revealed_ids}
+              if f["properties"].get(by) in region_ids}
+    if reveal_cells:
+        chosen |= {c for c in reveal_cells if c in by_id}
 
     if coast_ring:
         border = set()
@@ -725,15 +729,13 @@ def cmd_build(args):
     cells_by_id = {f["properties"]["id"]: f for f in cells}
 
     # Reveal set
-    if args.reveal_all:
-        revealed_ids = set()
-    elif args.reveal is not None:
-        revealed_ids = set(args.reveal)
-    else:
-        revealed_ids = set(_read_manifest_revealed(out_dir))
-    revealed = compute_revealed_cells(cells, revealed_ids, args.by, args.coast_ring)
-    print(f"revealed: {len(revealed)} cells "
-          f"({'ALL' if not revealed_ids else f'{args.by} in {sorted(revealed_ids)}'})")
+    reveal_all, region_ids, cell_ids = _resolve_reveal(args, out_dir)
+    revealed = compute_revealed_cells(cells, region_ids, args.by, args.coast_ring,
+                                      reveal_cells=cell_ids, reveal_all=reveal_all)
+    desc = "ALL" if reveal_all else (", ".join(filter(None, [
+        f"{args.by} {sorted(region_ids)}" if region_ids else "",
+        f"cells {sorted(cell_ids)}" if cell_ids else ""])) or "nothing")
+    print(f"revealed: {len(revealed)} cells ({desc})")
 
     # Transform (derived from markers, in degree space) + projector to world px
     cal = derive_deg_to_pixel(markers)
@@ -784,11 +786,11 @@ def cmd_build(args):
         distance = {"perPixel": float(settings["distanceScale"]) / args.scale,
                     "unit": settings.get("distanceUnit", "mi")}
 
-    _write_manifest(out_dir, args, revealed, revealed_ids, cells, lookups, world, distance)
+    _write_manifest(out_dir, args, revealed, region_ids, cell_ids, cells, lookups, world, distance)
     print("done.")
 
 
-def _write_manifest(out_dir, args, revealed, revealed_ids, cells, lookups, world, distance=None):
+def _write_manifest(out_dir, args, revealed, region_ids, cell_ids, cells, lookups, world, distance=None):
     path = os.path.join(out_dir, "manifest.json")
     prev = {}
     if os.path.exists(path):
@@ -814,7 +816,8 @@ def _write_manifest(out_dir, args, revealed, revealed_ids, cells, lookups, world
         "updated": datetime.date.today().isoformat(),
         "generator": "azgaar_export.py",
         "by": args.by,
-        "revealed": sorted(revealed_ids),
+        "revealed": sorted(region_ids),
+        "revealedCells": sorted(cell_ids),
         "home": home,
         "bounds": [round(v, 2) for v in bounds],
         "distance": distance,   # {perPixel, unit} for the measuring tool, or null
@@ -883,15 +886,11 @@ def cmd_upload(args):
     cells = load_features(cells_path)
     markers = load_features(markers_path)
 
-    # Static reveal set (same logic as build): these ship in git, so they are the
-    # regions we must NOT upload — only what's hidden goes to Supabase.
-    if args.reveal_all:
-        revealed_ids = set()
-    elif args.reveal is not None:
-        revealed_ids = set(args.reveal)
-    else:
-        revealed_ids = set(_read_manifest_revealed(args.out))
-    static_revealed = compute_revealed_cells(cells, revealed_ids, args.by, args.coast_ring)
+    # Static reveal set (SAME resolution as build): these ship in git, so they are
+    # what we must NOT upload — only the hidden complement goes to Supabase.
+    reveal_all, region_ids, cell_ids = _resolve_reveal(args, args.out)
+    static_revealed = compute_revealed_cells(cells, region_ids, args.by, args.coast_ring,
+                                             reveal_cells=cell_ids, reveal_all=reveal_all)
 
     cal = derive_deg_to_pixel(markers)
     project = make_projector(cal, args.scale, args.origin_x, args.origin_y)
@@ -1043,12 +1042,27 @@ def _write_json(path, obj):
 def _read_manifest_revealed(out_dir):
     path = os.path.join(out_dir, "manifest.json")
     if not os.path.exists(path):
-        return []
+        return [], []
     try:
         with open(path, encoding="utf-8") as fh:
-            return json.load(fh).get("revealed", [])
+            m = json.load(fh)
+        return m.get("revealed", []), m.get("revealedCells", [])
     except (OSError, ValueError):
-        return []
+        return [], []
+
+
+def _resolve_reveal(args, out_dir):
+    """Work out what to reveal from the CLI, falling back to the last manifest when
+    no reveal args are given. Returns (reveal_all, region_ids:set, cell_ids:set).
+    `--reveal-all` wins; otherwise region IDs (--reveal) and/or cell IDs
+    (--reveal-cells) combine, and an empty result reveals nothing (not everything)."""
+    if args.reveal_all:
+        return True, set(), set()
+    cells = getattr(args, "reveal_cells", None)
+    if args.reveal is not None or cells is not None:
+        return False, set(args.reveal or []), set(cells or [])
+    regions, mcells = _read_manifest_revealed(out_dir)   # neither given → reuse manifest
+    return False, set(regions), set(mcells)
 
 
 def _load_lookups(explicit, out_dir):
@@ -1082,6 +1096,9 @@ def main():
                    help="region IDs to reveal (default: read manifest 'revealed')")
     g.add_argument("--reveal-all", action="store_true",
                    help="reveal the whole world (testing only)")
+    b.add_argument("--reveal-cells", type=int, nargs="*", default=None,
+                   help="specific cell IDs to reveal too, e.g. a starting tile "
+                        "(combine with --reveal, or use alone for just those cells)")
     b.add_argument("--by", choices=["state", "province"], default="state",
                    help="what a reveal ID refers to (default: state)")
     b.add_argument("--coast-ring", dest="coast_ring", action="store_true",
@@ -1109,6 +1126,9 @@ def main():
                     help="statically-revealed region IDs to EXCLUDE (default: manifest 'revealed')")
     ug.add_argument("--reveal-all", action="store_true",
                     help="treat everything as statically revealed (uploads nothing)")
+    u.add_argument("--reveal-cells", type=int, nargs="*", default=None,
+                   help="statically-revealed cell IDs to EXCLUDE too — must match build "
+                        "(default: manifest 'revealedCells')")
     u.add_argument("--by", choices=["state", "province"], default="state",
                    help="what a region ID refers to — must match your build + manifest (default: state)")
     u.add_argument("--coast-ring", dest="coast_ring", action="store_true",
