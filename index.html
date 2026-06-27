@@ -128,6 +128,9 @@
             <button id="tool-reveal-state" class="btn tool-btn" type="button" data-tool="reveal-state" aria-pressed="false">
               Reveal full state
             </button>
+            <button id="tool-reveal-water" class="btn tool-btn" type="button" data-tool="reveal-water" aria-pressed="false">
+              Reveal water
+            </button>
           </div>
 
           <!-- Token options: which icon + what color + an optional label. JS
@@ -378,6 +381,12 @@
       <p class="popup__body"></p>
       <!-- Settlements with a burg-preview link show this; JS sets href + unhides. -->
       <a class="popup__link is-hidden" target="_blank" rel="noopener noreferrer">View burg ↗</a>
+      <!-- GM-only, live locations only (05e-5): reveal/un-reveal this location.
+           JS (openMarkerPopup) unhides this when isGM() and the marker is a live
+           one, sets the label (Reveal/Hide), and wires it to live.revealLocation. -->
+      <div class="popup__actions marker-gm-actions is-hidden">
+        <button class="loc-toggle btn btn--primary" type="button">Reveal</button>
+      </div>
     </div>
   </template>
 

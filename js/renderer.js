@@ -5,10 +5,11 @@ import { getUIState, openMarkerPopup, openNotePopup, openTokenPopup, closePopups
 import { getVisibleCells, forEachRing, cellAt, overlayColor,
          getVisibleRivers, getVisibleRoutes, forEachLine, getStateLabels, getProvinceLabels, 
          riverAt, getStateBorders, getStateBordersFaded, getProvinceBorders, getProvinceBordersFaded } from "./map-data.js";
-import { getActiveOverlay, isRiversVisible, isRoutesVisible, isLabelsVisible } from "./layers.js";
+import { getActiveOverlay, isRiversVisible, isRoutesVisible, isLabelsVisible, isCategoryVisible } from "./layers.js";
 import { getPings, sendPing, getTokens, placeToken, moveToken, tokenAt, getLiveCells,
          isCellRevealed, liveCellAt, revealScope, isGM, scopeInfo, getLiveRivers, getLiveRoutes,
-        lineRevealed, getLiveProvinceLabels, getLiveProvinceLabelsFaded, getLiveStateLabels, getLiveStateLabelsFaded } from "./live.js";
+        lineRevealed, getLiveProvinceLabels, getLiveProvinceLabelsFaded, getLiveStateLabels, getLiveStateLabelsFaded,
+        getLiveMarkers, locationRevealed, liveMarkerAt } from "./live.js";
 
 
 
@@ -170,7 +171,7 @@ export function createRenderer(canvas, manifest, onViewChange) {
       if (b.maxX < tl.x || b.minX > br.x || b.maxY < tl.y || b.minY > br.y) continue;
       if (isCellRevealed(cell)) {
         paintCell(cell, overlay);
-      } else if (gm) {
+      } else if (gm && !isWaterCell(cell)) {
         ctx.globalAlpha = 0.35; // Partially hidden to indicate it is a hidden tile
         paintCell(cell,overlay);
         ctx.globalAlpha = 1;
@@ -244,6 +245,20 @@ export function createRenderer(canvas, manifest, onViewChange) {
     }
 
     for (const token of getTokens()) drawToken(token);
+
+    // Live markers and locations
+    for (const m of getLiveMarkers()) {
+      if (!isCategoryVisible(m.category)) continue;
+      const revealed = locationRevealed(m);
+      if (!revealed && !gm) continue; // Should never happen as players should not have this info
+      ctx.globalAlpha = revealed ? 1 : 0.4;
+      if (m.category === "settlements") {
+        if (settlementVisibleAt(m, view.scale)) drawSettlement(m);
+      } else {
+        drawBadge(m.x, m.y, getCategoryIcon(m.category), MARKER_RING);
+      }
+      ctx.globalAlpha = 1;
+    }
 
     // Draw pings
     const nowMs = Date.now();
@@ -593,6 +608,11 @@ export function createRenderer(canvas, manifest, onViewChange) {
     return Math.max(2.5, Math.min(7, 2 + Math.sqrt(m.population || 0) / 45));
   }
 
+  function isWaterCell(cell) {
+    const t = cell.properties.type;
+    return t === "ocean" || t === "lake";
+  }
+
   function drawSettlement(m) {
     const p = worldToScreen(m.x, m.y);
     const r = settlementRadius(m);
@@ -667,6 +687,17 @@ export function createRenderer(canvas, manifest, onViewChange) {
         if (m.category !== "settlements") continue;
         if (!settlementVisibleAt(m, view.scale)) continue;
         drawLabel(m.name, m.x, m.y, m.group === "capital" ? 12 : 10, 500, settlementRadius(m) + 9);
+      }
+      // Live settlements
+      const gm = isGM();
+      for (const m of getLiveMarkers()) {
+        if (m.category !== "settlements") continue;
+        if (!settlementVisibleAt(m, view.scale)) continue;
+        const revealed = locationRevealed(m);
+        if (!revealed && !gm) continue;
+        ctx.globalAlpha = revealed ? 1 : 0.4;
+        drawLabel(m.name, m.x, m.y, m.group === "capital" ? 12 : 10, 500, settlementRadius(m) + 9);
+        ctx.globalAlpha = 1;
       }
     }
   }
@@ -926,9 +957,17 @@ export function createRenderer(canvas, manifest, onViewChange) {
     const scope = REVEAL_SCOPE[ui.activeTool];
     if (scope) {
       const cell = liveCellAt(wpt.x, wpt.y);
-      if (cell) {
+      if (cell && !isWaterCell(cell)) {
         openRevealPopup(scopeInfo(cell, scope), sx, sy,
           (level) => revealScope(cell, scope, level));
+      }
+      return;
+    }
+    // Reveal Water tool
+    if (ui.activeTool === "reveal-water") {
+      const cell = liveCellAt(wpt.x, wpt.y);
+      if (cell && isWaterCell(cell)) {
+        revealScope(cell, "cell", isCellRevealed(cell) ? 0 : 2)
       }
       return;
     }
@@ -969,6 +1008,13 @@ export function createRenderer(canvas, manifest, onViewChange) {
     if (marker) {
       const p = worldToScreen(marker.x, marker.y);
       openMarkerPopup(marker, p.x, p.y);
+      return;
+    }
+    const liveMarker = liveMarkerAt(wpt.x, wpt.y, radius);
+    if (liveMarker) {
+      const p = worldToScreen(liveMarker.x, liveMarker.y);
+      openMarkerPopup(liveMarker, p.x, p.y);
+      return;
     }
   }
 

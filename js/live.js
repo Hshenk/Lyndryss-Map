@@ -53,6 +53,9 @@ let cellLevels = new Map();
 let liveStateLabels = { solid: [], faded: []};
 let liveProvinceLabels = { solid: [], faded: [] };
 
+// Locations and Markers
+let liveMarkers = [];
+let revealedLocationIds = new Set();
 
 
 function configured() {
@@ -155,6 +158,12 @@ export async function initLive(onChange) {
     session = s ? { signedIn: true, email: s.user.email } : { signedIn: false };
     refreshRevealed();
   });
+
+  // Locations
+  supabase.channel("reveal_locations")
+    .on("postgres_changes", { event: "*", schema: "public", table: "revealed_locations" }, 
+        () => refreshRevealed())
+    .subscribe();
 }
 
 
@@ -338,6 +347,15 @@ async function refreshRevealed() {
   liveRivers = lineRows.filter((r) => r.kind === "river").map(prepLine);
   liveRoutes = lineRows.filter((r) => r.kind === "route").map(prepLine);
 
+  // Locations and POI
+  const locRows = await pageAll(() => 
+    supabase.from("hidden_locations").select("id, cell_id, data").order("id"));
+  liveMarkers = locRows.map((r) => { const m = r.data; m._cell = r.cell_id; return m; });
+
+  const relRows = await pageAll(() => 
+    supabase.from("revealed_locations").select("location_id").order("location_id"));
+  revealedLocationIds = new Set(relRows.map((r) => r.location_id));
+
   notifyChange();
 }
 
@@ -492,3 +510,33 @@ export function getLiveStateLabels() { return liveStateLabels.solid; }
 export function getLiveStateLabelsFaded() { return liveStateLabels.faded; }
 export function getLiveProvinceLabels() { return liveProvinceLabels.solid; }
 export function getLiveProvinceLabelsFaded() { return liveProvinceLabels.faded; }
+
+
+//   --- Locations and POI ---
+export function getLiveMarkers() { return liveMarkers; }
+export function locationRevealed(m) {
+  if (revealedLocationIds.has(m.id)) return true;
+  if (m.category === "settlements") return (cellLevels.get(m._cell) ?? 0) >= 3;
+  return false;
+}
+export function liveMarkerAt(wx, wy, radius) {
+  let best = null, bestSq = radius * radius;
+  for (const m of liveMarkers) {
+    const dx = m.x - wx, dy = m.y - wy, d = dx * dx + dy * dy;
+    if (d <= bestSq) { best = m; bestSq = d; }
+  }
+  return best;
+}
+/** GM reveal single location */
+export async function revealLocation(m, on) {
+  if (!supabase) return;
+  if (on) {
+    await supabase.from("revealed_locations")
+      .upsert([{ location_id: m.id }], { onConflict: "location_id", ignoreDuplicates: true });
+  } else {
+    await supabase.from("revealed_locations").delete().eq("location_id", m.id);
+  }
+}
+export function locationIndividuallyRevealed(m) {
+  return revealedLocationIds.has(m.id);
+}

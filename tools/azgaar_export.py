@@ -581,6 +581,46 @@ def build_markers(markers, revealed, grid, project, burgs, to_world):
     return {"categories": cat_defs, "markers": out}
 
 
+def build_hidden_locations(markers, burgs, grid, project, to_world, static_revealed):
+    """POI markers + burgs whose cell is NOT statically revealed, as
+    {id, cell_id, category, data} rows for the gated hidden_locations table. `data`
+    matches the markers.json marker schema, so the renderer draws them like static
+    markers. `category` is also a column so RLS can gate by it: settlements show at
+    cell level >= 3 OR individually; POI markers (landmarks/hazards) ONLY when the
+    GM reveals them individually."""
+    rows = []
+    for m in markers:
+        lon, lat = m["geometry"]["coordinates"]
+        cell = grid.nearest_cell(lon, lat)
+        if cell in static_revealed:
+            continue                          # already shipped in markers.json
+        p = m["properties"]
+        wx, wy = project(lon, lat)
+        mid = f"poi{p.get('id')}"
+        cat = MARKER_CATEGORY.get(p.get("type"), "landmarks")
+        rows.append({"id": mid, "cell_id": cell, "category": cat, "data": {
+            "id": mid, "category": cat, "x": wx, "y": wy,
+            "name": p.get("name") or p.get("type", "Marker"),
+            "note": p.get("legend") or "",
+        }})
+
+    for b in burgs:
+        cell = b.get("cell")
+        if cell in static_revealed:
+            continue
+        wx, wy = to_world(b["x"], b["y"])
+        bid = f"burg{b['i']}"
+        rows.append({"id": bid, "cell_id": cell, "category": "settlements", "data": {
+            "id": bid, "category": "settlements", "x": wx, "y": wy,
+            "name": b.get("name") or "Settlement", "note": burg_note(b),
+            "link": b.get("link") or "",
+            "group": b.get("group") or "town",
+            "port": 1 if b.get("port") else 0,
+            "population": int(round((b.get("population") or 0) * 1000)),
+        }})
+    return rows
+
+
 def build_labels(geo, revealed, to_world, lookups):
     """State and province text labels at their Azgaar 'pole' points, limited to
     states/provinces that have at least one revealed cell. Names come from the
@@ -869,23 +909,26 @@ def cmd_upload(args):
 
     rows = []
     for f in cells:
-        if f["properties"]["id"] in static_revealed:
+        p = f["properties"]
+        if p["id"] in static_revealed:
             continue                          # already public via git — not hidden
-        region_id = f["properties"].get(args.by)
-        if not region_id:                     # 0 / None => water or neutral, no region
+        is_water = p.get("type") in ("ocean", "lake")
+        region_id = p.get(args.by)
+        if not is_water and not region_id:    # neutral land with no region — skip
             continue
         feat = _cell_to_feature(f, project, lookups, lake_names)
-        feat["_meta"] = _cell_overlay_meta(f["properties"], full)   # self-describing on reveal
+        feat["_meta"] = _cell_overlay_meta(p, full)   # self-describing on reveal
         rows.append({
-            "id": f["properties"]["id"],
-            "region_id": region_id,
-            "kind": args.by,
+            "id": p["id"],
+            "region_id": region_id or 0,
+            "kind": "water" if is_water else args.by,   # water revealed per-cell (no region scope)
             "data": feat,
         })
 
-    regions = sorted({r["region_id"] for r in rows})
-    print(f"hidden cells: {len(rows)} across {len(regions)} {args.by}(s) "
-          f"(everything not in the static reveal)")
+    n_water = sum(1 for r in rows if r["kind"] == "water")
+    regions = sorted({r["region_id"] for r in rows if r["kind"] != "water"})
+    print(f"hidden cells: {len(rows)} ({len(rows) - n_water} land across "
+          f"{len(regions)} {args.by}(s), {n_water} water)")
 
     # Rivers/routes split per cell for live reveal, gated by discovery level
     # (rivers show at level >= 2, routes at >= 3). Same clip math as build_lines.
@@ -906,27 +949,38 @@ def cmd_upload(args):
     print(f"hidden line segments: {len(line_rows)} "
           f"({n_river} river, {len(line_rows) - n_river} route)")
 
+    # Locations (POI markers + burgs) for hidden cells — shown when their cell hits
+    # level >= 3, or when the GM reveals them individually (gated in RLS).
+    geo = load_azgaar_geo(resources)
+    to_world = make_pixel_projector(args.scale, args.origin_x, args.origin_y)
+    loc_rows = build_hidden_locations(markers, geo["burgs"], grid, project, to_world,
+                                      static_revealed)
+    print(f"hidden locations: {len(loc_rows)}")
+
     if args.dry_run:
         # Previews go in resources/ (gitignored) — they hold SECRET hidden data and
         # must never land in committed data/. Names avoid export keywords so
         # find_latest() (case-insensitive on Windows) won't mistake them for exports.
         _write_json(os.path.join(resources, "upload-preview.json"), rows)
         _write_json(os.path.join(resources, "upload-lines-preview.json"), line_rows)
+        _write_json(os.path.join(resources, "upload-locations-preview.json"), loc_rows)
         print(f"dry run: wrote previews to resources/ "
-              f"({len(rows)} cells, {len(line_rows)} line segments), nothing uploaded")
+              f"({len(rows)} cells, {len(line_rows)} line segments, "
+              f"{len(loc_rows)} locations), nothing uploaded")
         return
 
     _replace_table(url, key, "hidden_cells", rows)
     _replace_table(url, key, "hidden_lines", line_rows)
-    print("done. hidden cells + lines synced; reveal from the map (or set "
-          "revealed_cells levels) to show them.")
+    _replace_table(url, key, "hidden_locations", loc_rows)
+    print("done. hidden cells + lines + locations synced; reveal from the map.")
 
 
 def _replace_table(url, key, table, rows):
     """Clear a table then bulk-insert rows in batches (a full publish of that set).
-    id>=0 matches every row; PostgREST requires a filter to allow DELETE."""
+    `id=not.is.null` matches every row (works for int and text PKs); PostgREST
+    requires a filter to allow DELETE."""
     status, msg = _supabase_request(
-        "DELETE", f"{url}/rest/v1/{table}?id=gte.0", key,
+        "DELETE", f"{url}/rest/v1/{table}?id=not.is.null", key,
         extra_headers={"Prefer": "return=minimal"})
     if status >= 300:
         sys.exit(f"error: clearing {table} failed ({status}): {msg}")

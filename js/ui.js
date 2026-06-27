@@ -37,7 +37,7 @@ import { setActiveOverlay, getActiveOverlay, setCategoryVisible, isCategoryVisib
   setRiversVisible, setRoutesVisible, setLabelsVisible } from "./layers.js";
 import { getCategories, getCategoryCount, getCategoryIcon, searchMarkers } from "./markers.js";
 import { updateAnnotation, removeAnnotation, clearAnnotations } from "./annotations.js";
-import { signIn, signOut, isGM, gmEmail, removeToken } from "./live.js";
+import { signIn, signOut, isGM, gmEmail, removeToken, revealLocation, locationIndividuallyRevealed } from "./live.js";
 
 
 /**
@@ -162,6 +162,17 @@ export function openMarkerPopup(marker, sx, sy) {
 
 
   popup.querySelector(".popup__close").addEventListener("click", closePopups);
+
+  // GM-only, live locations only: reveal or hide toggle
+  if (isGM() && marker._cell != null) {
+    const actions = popup.querySelector(".marker-gm-actions");
+    const btn = popup.querySelector(".loc-toggle");
+    const pinned = locationIndividuallyRevealed(marker);
+    btn.textContent = pinned ? "Hide" : "Reveal";
+    btn.classList.toggle("btn--danger", pinned);
+    btn.addEventListener("click", () => { revealLocation(marker, !pinned); closePopups(); });
+    actions.classList.remove("is-hidden");
+  }
   popupLayer().append(popup);
   positionPopup(popup, sx, sy);
 }
@@ -494,6 +505,7 @@ function bindAnnotationTools() {
     document.getElementById("tool-reveal-cell"),
     document.getElementById("tool-reveal-province"),
     document.getElementById("tool-reveal-state"),
+    document.getElementById("tool-reveal-water"),
   ];
 
   for (const button of toolButtons) {
