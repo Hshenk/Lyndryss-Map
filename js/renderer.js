@@ -221,6 +221,7 @@ export function createRenderer(canvas, manifest, onViewChange) {
       for (const seg of getLiveRoutes()) {
         const b = seg._bbox;
         if (b.maxX < tl.x || b.minX > br.x || b.maxY < tl.y || b.minY > br.y) continue;
+        if (!lineRevealed(seg)) continue; // GM holds all routes, so draw only revealed to keep map clean
         const s = ROUTE_STYLES[seg.properties.group] ?? ROUTE_STYLES.trails;
         ctx.strokeStyle = s.color;
         ctx.lineWidth = s.width;

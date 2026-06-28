@@ -52,10 +52,16 @@ let liveRoutes = [];
 let cellLevels = new Map();
 let liveStateLabels = { solid: [], faded: []};
 let liveProvinceLabels = { solid: [], faded: [] };
+let pendingCells = new Map();
+let pendingLocs = new Map();
+let flushTimer = null;
+
 
 // Locations and Markers
 let liveMarkers = [];
 let revealedLocationIds = new Set();
+
+
 
 
 function configured() {
@@ -146,23 +152,17 @@ export async function initLive(onChange) {
 
   // Cell/Province Data
   await refreshRevealed();
-  revealChannel = supabase
-    .channel("revealed_cells")
+  revealChannel = supabase.channel("revealed_cells")
     .on("postgres_changes",
       { event: "*", schema: "public", table: "revealed_cells" },
-      () => refreshRevealed())
+      queueCellChange)
     .subscribe();
-  
-  // GM reads all hidden cells
-  supabase.auth.onAuthStateChange((_event, s) => {
-    session = s ? { signedIn: true, email: s.user.email } : { signedIn: false };
-    refreshRevealed();
-  });
+
 
   // Locations
-  supabase.channel("reveal_locations")
+  supabase.channel("revealed_locations")
     .on("postgres_changes", { event: "*", schema: "public", table: "revealed_locations" }, 
-        () => refreshRevealed())
+        queueLocationChange)
     .subscribe();
 }
 
@@ -280,7 +280,7 @@ export function tokenAt(wx, wy, radius) {
  * @returns {Promise<{ok: boolean, error?: string}>}
  */
 export async function signIn(email, password) {
-  if (!supabase) return { ok: false, error: "Set you Supabase keys in config.js first." };
+  if (!supabase) return { ok: false, error: "Set your Supabase keys in config.js first." };
   const { error } = await supabase.auth.signInWithPassword({ email, password });
   return error ? { ok: false, error: error.message } : { ok: true };
 }
@@ -334,12 +334,8 @@ async function refreshRevealed() {
 
 
   mergeLiveOverlays();
-  
-  // Labels and borders
-  for (const c of liveCells)
-    c.properties._rev = (cellLevels.get(c.properties.id) ?? 0) >= 3;
-  setLiveBorderCells(liveCells); // GM passes all; players pass only revealed
-  computeLiveLabels();
+  recomputeDerived();
+
 
   // Rivers and Routes
   const lineRows = await pageAll(() => 
@@ -539,4 +535,54 @@ export async function revealLocation(m, on) {
 }
 export function locationIndividuallyRevealed(m) {
   return revealedLocationIds.has(m.id);
+}
+
+
+//   --- Queue to prevent recalling DB every change ---
+
+/** Recompute everything derived from liveCells + celllevels (no DB) */
+function recomputeDerived() {
+  for (const c of liveCells)
+    c.properties._rev = (cellLevels.get(c.properties.id) ?? 0) >= 3;
+  setLiveBorderCells(liveCells);
+  computeLiveLabels();
+}
+
+function queueCellChange(payload) {
+  if (payload.eventType === "DELETE") pendingCells.set(payload.old.cell_id, null);
+  else pendingCells.set(payload.new.cell_id, payload.new.level);
+  scheduleFlush();
+}
+
+function queueLocationChange(payload) {
+  if (payload.eventType === "DELETE") pendingLocs.set(payload.old.location_id, null);
+  else pendingLocs.set(payload.new.location_id, true);
+  scheduleFlush();
+}
+
+function scheduleFlush() {
+  clearTimeout(flushTimer);
+  flushTimer = setTimeout(flushReveals, 150);
+}
+
+// GM applies locally, players refetch once
+async function flushReveals() {
+  const cells = pendingCells; const locs = pendingLocs;
+  pendingCells = new Map(); pendingLocs = new Map();
+
+  if (isGM()) {
+    // GM holds the whole catalog, just update the reveal sets, no fetch
+    for (const [id, level] of cells) {
+      if (level === null) { revealedCells.delete(id); cellLevels.delete(id); }
+      else { revealedCells.add(id); cellLevels.set(id, level); }
+    }
+    for (const [id, on] of locs) {
+      if (on === null) revealedLocationIds.delete(id); else revealedLocationIds.add(id);
+    }
+    recomputeDerived();
+    notifyChange();
+  } else{
+    // Players can't hold the full catalog so refetch the visible set, but only once per burst
+    await refreshRevealed();
+  }
 }
