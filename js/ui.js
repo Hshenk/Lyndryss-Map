@@ -5,14 +5,13 @@
  * Elements / hooks cheat sheet:
  *   #sidebar-toggle        → toggle .sidebar--collapsed on #sidebar,
  *                            mirror state to aria-expanded
- *   #zoom-in / #zoom-out   → renderer.zoomBy(ZOOM_STEP) / (1 / ZOOM_STEP)
+ *   #zoom-in / #zoom-out   → renderer.zoomSmooth(ZOOM_STEP) / (1 / ZOOM_STEP)
  *   #zoom-reset            → renderer.resetView()
  *   #coords-readout        → update on canvas pointermove ("123, -456")
  *   #marker-search         → markers.searchMarkers() on input; results into
  *                            #search-results via template #tpl-search-result;
  *                            remove .is-hidden while there are results
  *   #overlay-toggle-list   → change events on .switch__input[data-layer]
- *                            → layers.setLayerVisible(); disable inputs whose
  *                            layer isn't in the manifest
  *   #icon-toggle-list      → rebuild from markers.getCategories() using
  *                            template #tpl-icon-toggle (set data-category,
@@ -522,7 +521,7 @@ function bindAnnotationTools() {
       setActiveTool("pan");
       closePopups();
     }
-  });''
+  });
 
   // Icon palette 
   const swatches = document.querySelectorAll("#annotation-icon-palette .icon-palette__swatch");

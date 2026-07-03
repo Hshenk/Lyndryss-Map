@@ -57,9 +57,6 @@ export function getManifest() {
     return manifest;
 }
 
-export function getCells() {
-    return cells;
-}
 
 export function getStateLabels() { return labels.states; }
 export function getProvinceLabels() { return labels.provinces; }

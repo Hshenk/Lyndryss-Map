@@ -55,8 +55,6 @@ const TOKEN_RADIUS = 13;
 
 /**
  * Create the renderer bound to a canvas.
- * @param {HTMLCanvasElement} canvas  #map-canvas
- * @param {import("./tile-manager.js").Manifest} manifest
  * @returns {Renderer}
  */
 export function createRenderer(canvas, manifest, onViewChange) {
@@ -99,10 +97,6 @@ export function createRenderer(canvas, manifest, onViewChange) {
     }
 
 
-    // const province = p.province ? manifest.overlays?.province?.[p.province]?.name : null;
-    // // State 0 is neutrals
-    // const state = p.state ? manifest.overlays?.state?.[p.state]?.name : null;
-
     const parts = [biome].filter(Boolean);
     return parts.length ? `${xy} · ${parts.join(" · ")}` : xy;
   }
@@ -110,7 +104,7 @@ export function createRenderer(canvas, manifest, onViewChange) {
 
   /** Gets the text to display in a status text at the bottom of the page */
   function statusText(cell, river) {
-    if (river) return `${river.properties.name} River` || "River";
+    if (river) return river.properties.name ? `${river.properties.name} River` : "River";
     if (!cell || cell.properties.type === "ocean") return "";
     const p = cell.properties;
     if (p.biome === 11 || manifest.overlays?.province?.[p.province]?.name === "Province 0") return "";

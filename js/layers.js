@@ -3,7 +3,6 @@
  *
  * Single source of truth the renderer reads each frame; ui.js calls the
  * setters when switches flip. Keep it dumb: state + change notification.
- * Optionally persist to LAYER_PREFS_STORAGE_KEY so choices survive refresh.
  */
 
 
@@ -29,28 +28,6 @@ export function getActiveOverlay() {
 
 export function setActiveOverlay(id) {
   activeOverlay = id;
-  notify();
-}
-
-
-/**
- * Is the given overlay layer (e.g. "territory") currently visible?
- * "base" should always report true.
- * @param {string} layerId
- * @returns {boolean}
- */
-export function isLayerVisible(layerId) {
-  return activeOverlay === layerId;
-}
-
-/**
- * Show/hide an overlay layer.
- * @param {string} layerId
- * @param {boolean} visible
- */
-export function setLayerVisible(layerId, visible) {
-  if (visible) activeOverlay = layerId; 
-  else if (activeOverlay === layerId) activeOverlay = "biome"; // default to biome map
   notify();
 }
 

@@ -1,27 +1,10 @@
 /**
- * live.js — the realtime session layer (Phase 2). STUB: interface only, no logic.
+ * live.js — the realtime session layer.
  *
  * This is a new *data module*, peer to markers.js / annotations.js. It owns the
- * connection to Supabase and the local arrays of live, shared objects (pings now;
- * tokens later). The renderer draws from it; ui.js drives it from GM tools. It is
+ * connection to Supabase and the local arrays of live, shared objects.
+ * The renderer draws from it; ui.js drives it from GM tools. It is
  * the ONLY module that talks to Supabase.
- *
- * Design mirrors annotations.js on purpose — placing a ping is structurally like
- * placing a player annotation, except it INSERTs to Supabase (so every connected
- * player sees it) instead of writing to localStorage (this browser only).
- *
- * Lifecycle (wired by you from main.js, after the renderer exists):
- *   1. initLive(onChange)   — create the client, fetch current pings, subscribe.
- *   2. subscription fires    — a row was inserted/deleted somewhere → update the
- *                              local array → call onChange() so main re-renders.
- *   3. GM acts (ui.js)       — signIn(), then sendPing(x, y) inserts a row.
- *
- * Security note: players never sign in, so RLS rejects their writes. The GM tools
- * in the UI stay hidden until signIn() succeeds, but RLS — not the hidden UI — is
- * the real gate. See docs/guide-phase2/01-supabase-setup.md.
- *
- * Implement this from docs/guide-phase2/02-the-ping.md. Until then every function
- * is a no-op, so importing this module changes nothing and the map runs as before.
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -122,11 +105,10 @@ export async function initLive(onChange) {
       { event: "INSERT", schema: "public", table: "pings",
         filter: `session_id=eq.${SESSION_ID}` },
       (payload) => {
-        console.log("realtime INSERT received:", payload.new);
         addLocalPing(payload.new);
       },
     )
-    .subscribe((status) => console.log("realtime status:", status));
+    .subscribe();
   
   // Load every token for this session
   const { data: tokenRows } = await supabase
