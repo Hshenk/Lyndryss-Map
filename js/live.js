@@ -3,8 +3,7 @@
  *
  * This is a new *data module*, peer to markers.js / annotations.js. It owns the
  * connection to Supabase and the local arrays of live, shared objects.
- * The renderer draws from it; ui.js drives it from GM tools. It is
- * the ONLY module that talks to Supabase.
+ * The renderer draws from it; ui.js drives it from GM tools.
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -15,13 +14,14 @@ import {
   PING_LIFETIME_MS,
 } from "./config.js";
 import { forEachRing, mergeOverlays, forEachLine, setLiveBorderCells } from "./map-data.js";
-
+import { getAnnotations, setAnnotations, setAnnotationBackend,
+         clearLocalStorageAnnotations, loadAnnotations } from "./annotations.js";
 
 
 let supabase = null; // the client
 let pings = [];
 let channel = null;  // realtime subscription 
-let session = { signedIn: false, email: undefined };
+let session = { signedIn: false, email: undefined, userId: undefined, isGM: false };
 let notifyChange = () => {};
 let tokens = [];
 let tokenChannel = null;
@@ -81,12 +81,10 @@ export async function initLive(onChange) {
 
   supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
 
-  // Restore GM session the browser has one stored
-  const { data: {session: existing } } = await supabase.auth.getSession();
-  if (existing) session = { signedIn: true, email: existing.user.email };
-  supabase.auth.onAuthStateChange((_event, s) => {
-    session = s ? { signedIn: true, email: s.user.email } : { signedIn: false };
-    refreshRevealed();
+  // Sign-in / Sign-out / token-refresh
+  supabase.auth.onAuthStateChange((event) => {
+    if (event == "INITIAL_SESSION") return;
+    applyAuth();
   });
 
   // Loads pings that are still within their lifetime
@@ -132,8 +130,8 @@ export async function initLive(onChange) {
     .subscribe();
   
 
-  // Cell/Province Data
-  await refreshRevealed();
+  // Auth + first reveal load.
+  await applyAuth();
   revealChannel = supabase.channel("revealed_cells")
     .on("postgres_changes",
       { event: "*", schema: "public", table: "revealed_cells" },
@@ -253,21 +251,85 @@ export function tokenAt(wx, wy, radius) {
   return best;
 }
 
+//   --- Annotations ---
+const cloudBackend = {
+  add(a)        { insertPlayerAnnotation(a); },
+  update(id, a) { updatePlayerAnnotation(a); },
+  remove(id)    { deletePlayerAnnotation(id); },
+  clear()       { clearPlayerAnnotations(); },
+};
+
+async function insertPlayerAnnotation(a) {
+  const { error } = await supabase.from("player_annotations").insert({
+    id: a.id, user_id: session.userId,
+    kind: a.kind, icon: a.icon, x: a.x, y: a.y, text: a.text ?? "",
+  });
+  if (error) console.warn("annotation save failed:", error.message);
+}
+
+async function updatePlayerAnnotation(a) {
+  const { error } = await supabase.from("player_annotations").update({
+    kind: a.kind, icon: a.icon, x: a.x, y:a.y, text: a.text ?? "",
+    updated_at: new Date().toISOString(),
+  }).eq("id", a.id);
+  if (error) console.warn("annotation update failed:", error.message);
+}
+async function deletePlayerAnnotation(id) {
+  const { error } = await supabase.from("player_annotations").delete().eq("id", id);
+  if (error) console.warn("annotation delete failed:", error.message);
+}
+
+async function clearPlayerAnnotations() {
+  const { error } = await supabase.from("player_annotations")
+    .delete().eq("user_id", session.userId);
+  if (error) console.warn("annotation clear failed:", error.message);
+}
+
+async function loadPlayerAnnotations() {
+  const rows = await pageAll(() => supabase.from("player_annotations")
+    .select("id, kind, icon, x, y, text").order("updated_at"));
+  return rows.map((r) => ({
+    id: r.id, kind: r.kind, icon: r.icon, x: r.x, y: r.y, text: r.text ?? "",
+  }));
+}
+
+/** On first sign in: push any marks made while anonymous to the account, then drop local copy */
+async function migrateLocalAnnotations() {
+  const local = getAnnotations();
+  if (!local.length) return;
+  const rows = local.map((a) => ({
+    id: a.id, user_id: session.userId,
+    kind: a.kind, icon: a.icon, x: a.x, y: a.y, text: a.text ?? "",
+  }));
+  const { error } = await supabase.from("player_annotations")
+    .upsert(rows, { onConflict: "id", ignoreDuplicates: true});
+  if (error) { console.warn("annotation migrate failed:", error.message); return; }
+  clearLocalStorageAnnotations();
+}
+
+async function enterCloudMode() {
+  await migrateLocalAnnotations(); // upload local marks
+  setAnnotationBackend(cloudBackend); // future writes go straight to supabase
+  const rows = await loadPlayerAnnotations();
+  setAnnotations(rows); // render happens via notifyChange()
+}
+
+function exitCloudMode() {
+  setAnnotationBackend(null); // Switch back to localStorage
+  loadAnnotations();
+}
+
+//   --- Login and Logout ---
+
 
 /**
- * GM login (email + password — the default chosen for easy dev testing; you can
- * switch to magic-link later). On success, ui.js unlocks the GM write tools.
- * @param {string} email
- * @param {string} password
- * @returns {Promise<{ok: boolean, error?: string}>}
+ * GM and Player Sign-in and Sign-out
  */
 export async function signIn(email, password) {
   if (!supabase) return { ok: false, error: "Set your Supabase keys in config.js first." };
   const { error } = await supabase.auth.signInWithPassword({ email, password });
   return error ? { ok: false, error: error.message } : { ok: true };
 }
-
-/** GM logout. Re-hide the write tools. @returns {Promise<void>} */
 export async function signOut() {
   await supabase?.auth.signOut();
 }
@@ -277,13 +339,45 @@ export async function signOut() {
  * Whether a GM is currently signed in (drives whether ui.js shows write tools).
  * @returns {boolean}
  */
-export function isGM() {
-  return session.signedIn;
+export function isGM() { return session.isGM; }
+export function gmEmail() { return session.email ?? ""; }
+
+export function isSignedIn() { return session.signedIn; }
+export function accountEmail() { return session.email ?? ""; }
+
+/** Self-serve player registration with "Confirm email" on.
+ *  No session exists until they confirm their email.
+ */
+export async function signUp(email, password) {
+  if (!supabase) return { ok: false, error: "Set you Supabase keys in config.js first." };
+  const { data, error } = await supabase.auth.signUp({ email, password });
+  if (error) return { ok: false, error: error.message };
+  return { ok: true, needsConfirm: !data.session };
 }
 
+/** Read the current auth session and decide whether the user is a GM */
+async function resolveSession() {
+  const { data: { session: s } } = await supabase.auth.getSession();
+  if (!s) {
+    session = { signedIn: false, email: undefined, userId: undefined, isGM: false };
+    return;
+  }
+  let gm = false;
+  const { data, error } = await supabase.rpc("is_gm");
+  if (error) console.warn("is_gm check failed:", error.message);
+  else gm = data === true;
+  session = { signedIn: true, email: s.user.email, userId: s.user.id, isGM: gm };
+}
 
-export function gmEmail() {
-  return session.email ?? "";
+/** React to a sign-in / sign-out: re-resolve */
+async function applyAuth() {
+  const before = session.signedIn;
+  await resolveSession();
+  const after = session.signedIn;
+  if (after && !before) await enterCloudMode();
+  else if (!after && before) exitCloudMode();
+  await refreshRevealed();
+  notifyChange();
 }
 
 

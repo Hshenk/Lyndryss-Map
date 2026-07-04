@@ -69,6 +69,7 @@ import glob
 import json
 import math
 import os
+import re
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -531,6 +532,215 @@ def _flush_hidden_line(rows, run, run_t, cell, kind, min_level, props, static_re
         })
 
 
+# ---------------------------------------------------------------------------
+# Location map links (Phase 3): Watabou generator URLs + legend HTML cleanup
+# ---------------------------------------------------------------------------
+
+# Fallback burg-group -> generator map (Azgaar's defaults) used only if the JSON
+# export carries no options.burgs.groups. Groups not listed (fort, monastery,
+# caravanserai, trading_post, ...) intentionally get no generated map.
+WATABOU_DEFAULT_PREVIEWS = {
+    "capital": "watabou-city", "city": "watabou-city", "town": "watabou-city",
+    "village": "watabou-village", "hamlet": "watabou-village",
+}
+
+# Route-group weights for Azgaar's Routes.getConnectivityRate (village tags).
+_ROUTE_WEIGHTS = {"roads": 0.2, "trails": 0.1, "searoutes": 0.2}
+_ROUTE_WEIGHT_DEFAULT = 0.1
+
+_IFRAME_RE = re.compile(r"<iframe[^>]*>.*?</iframe>", re.S | re.I)
+_IFRAME_SRC_RE = re.compile(r'<iframe[^>]*\bsrc="([^"]+)"', re.I)
+_ANCHOR_RE = re.compile(r'<a\s[^>]*\bhref="([^"]+)"[^>]*>.*?</a>', re.S | re.I)
+_TAG_RE = re.compile(r"<[^>]+>")
+
+
+def clean_legend(legend):
+    """(note_text, link) from an Azgaar marker legend. Legends may embed HTML —
+    dungeons carry a one-page-dungeon link + iframe, encounters a character-card
+    iframe. Pull out the first embedded URL for the popup's preview/link and
+    strip the tags so the note reads as plain text."""
+    if not legend:
+        return "", ""
+    m = _ANCHOR_RE.search(legend) or _IFRAME_SRC_RE.search(legend)
+    link = m.group(1) if m else ""
+    text = _IFRAME_RE.sub("", legend)
+    text = _ANCHOR_RE.sub("", text)
+    text = _TAG_RE.sub(" ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    # Azgaar's dungeon text ends "... See <a>One page dungeon</a>" — with the
+    # anchor gone, drop the dangling "See" lead-in.
+    text = re.sub(r"\bSee\s*$", "", text).strip()
+    return text, link
+
+
+def _js_round(x, digits=0):
+    """JS Math.round semantics (half rounds UP; Python's round() is banker's)."""
+    scale = 10 ** digits
+    r = math.floor(x * scale + 0.5) / scale
+    return int(r) if digits == 0 else r
+
+
+def make_burg_linker(resources_dir):
+    """Return link_for(burg) -> Watabou generator URL (or ""), replicating
+    Azgaar's own createWatabouCityLinks / createWatabouVillageLinks so our links
+    render the SAME city/village maps Azgaar shows in its burg editor. Seeds are
+    deterministic (map seed + zero-padded burg id), so a burg always renders the
+    same map. Which generator (or none) comes from the burg group's `preview` in
+    options.burgs.groups: capital/city/town -> city generator, village/hamlet ->
+    village generator, fort etc. -> none. A GM-set burg `link` always wins.
+    Needs the Full JSON (per-cell data); with only a Minimal export this returns
+    a linker that only honors GM-set links."""
+    from urllib.parse import urlencode
+
+    data = _load_azgaar_json(resources_dir) or {}
+    pack = data.get("pack", {})
+    cells = {c["i"]: c for c in pack.get("cells", []) if isinstance(c, dict)}
+    if not cells:                            # Minimal export: no per-cell data
+        return lambda b: b.get("link") or ""
+
+    seed = data.get("info", {}).get("seed", 0)
+    settings = data.get("settings", {})
+    pop_rate = float(settings.get("populationRate") or 1000)
+    urbanization = float(settings.get("urbanization") or 1)
+    urban_density = float(settings.get("urbanDensity") or 10)
+    routes = {r["i"]: r for r in pack.get("routes", []) if isinstance(r, dict)}
+    features = {f["i"]: f for f in pack.get("features", []) if isinstance(f, dict)}
+    temps = {c["i"]: c.get("temp", 10)
+             for c in data.get("grid", {}).get("cells", []) if isinstance(c, dict)}
+
+    groups = ((settings.get("options") or {}).get("burgs") or {}).get("groups")
+    previews = ({g["name"]: g.get("preview") for g in groups if isinstance(g, dict)}
+                if groups else WATABOU_DEFAULT_PREVIEWS)
+
+    def farm_biomes(river):
+        # Riverside farms grow in more biomes than dry-land ones.
+        return (1, 2, 3, 4, 5, 6, 7, 8) if river else (5, 6, 7, 8)
+
+    def is_crossroad(cell):
+        # Azgaar Routes.isCrossroad: >3 route connections, or >2 proper roads.
+        rd = cell.get("routes") or {}
+        if not rd:
+            return False
+        if len(rd) > 3:
+            return True
+        n_roads = sum(1 for rid in rd.values()
+                      if (routes.get(rid) or {}).get("group") == "roads")
+        return n_roads > 2
+
+    def connectivity(cell):
+        # Azgaar Routes.getConnectivityRate: weighted sum over connected routes.
+        total = 0.0
+        for rid in (cell.get("routes") or {}).values():
+            r = routes.get(rid)
+            if r:
+                total += _ROUTE_WEIGHTS.get(r.get("group"), _ROUTE_WEIGHT_DEFAULT)
+        return total
+
+    def city_link(b, cell):
+        pop = b.get("population") or 0
+        river = 1 if cell.get("r") else 0
+        coast = 1 if (b.get("port") or 0) > 0 else 0
+        citadel = int(b.get("citadel") or 0)
+        size = max(6, min(100, math.ceil(
+            2.13 * (pop * pop_rate / urban_density) ** 0.385)))
+        params = {   # insertion order matches Azgaar's URLSearchParams
+            "name": b.get("name") or "",
+            "population": _js_round(pop * pop_rate * urbanization),
+            "size": size,
+            "seed": b.get("MFCG") or f"{seed}{b['i']:04d}",
+            "river": river,
+            "coast": coast,
+            "farms": int(cell.get("biome") in farm_biomes(river)),
+            "citadel": citadel,
+            "urban_castle": int(bool(citadel and b["i"] % 2 == 0)),
+            "hub": int(is_crossroad(cell)),
+            "plaza": int(b.get("plaza") or 0),
+            "greens": 1 if b.get("plaza") else 0,
+            "temple": int(b.get("temple") or 0),
+            "walls": int(b.get("walls") or 0),
+            "shantytown": int(b.get("shanty") or 0),
+            "style": "natural",
+        }
+        haven = cells.get(cell.get("haven")) if cell.get("haven") else None
+        if coast and haven:
+            # Which edge of the town map the sea sits on, 0..2 from the angle
+            # between the burg's cell and its haven (harbor) cell.
+            x1, y1 = cell["p"]
+            x2, y2 = haven["p"]
+            ang = math.atan2(y2 - y1, x2 - x1) * 180 / math.pi
+            params["sea"] = _js_round(abs(ang) / 180 if ang <= 0 else 2 - ang / 180, 2)
+        return "https://watabou.github.io/city-generator/?" + urlencode(params)
+
+    def village_link(b, cell):
+        pop = _js_round((b.get("population") or 0) * pop_rate * urbanization)
+        ci = cell["i"]
+        feat = features.get(cell.get("f")) or {}
+        tags = []
+        # Water context (first match wins), then road connectivity, land use,
+        # climate, and layout — mirroring Azgaar's tag order exactly.
+        if cell.get("r") and cell.get("haven"):
+            tags.append("estuary")
+        elif cell.get("haven") and feat.get("cells") == 1:
+            tags.append("island,district")
+        elif b.get("port"):
+            tags.append("coast")
+        elif cell.get("conf"):
+            tags.append("confluence")
+        elif cell.get("r"):
+            tags.append("river")
+        elif pop < 200 and ci % 4 == 0:
+            tags.append("pond")
+        conn = connectivity(cell)
+        tags.append("highway" if conn > 1 else "dead end" if conn == 1 else "isolated")
+        if cell.get("biome") in farm_biomes(cell.get("r")):
+            if ci % 6 == 0:
+                tags.append("farmland")
+        else:
+            tags.append("uncultivated")
+        temp = temps.get(cell.get("g"), 10)
+        if temp <= 0 or temp > 28 or (temp > 25 and ci % 3 == 0):
+            tags.append("no orchards")
+        if not b.get("plaza"):
+            tags.append("no square")
+        if b.get("walls"):
+            tags.append("palisade")
+        if pop < 100:
+            tags.append("sparse")
+        elif pop > 300:
+            tags.append("dense")
+        width = (1600 if pop > 1500 else 1400 if pop > 1000 else
+                 1000 if pop > 500 else 800 if pop > 200 else
+                 600 if pop > 100 else 400)
+        style = ("sand" if cell.get("biome") in (1, 2) else
+                 "snow" if temp <= 5 or cell.get("biome") in (9, 10, 11) else
+                 "default")
+        params = {
+            "pop": pop,
+            "name": b.get("name") or "",
+            "seed": f"{seed}{b['i']:04d}",
+            "width": width,
+            "height": _js_round(width / 2.05),
+            "style": style,
+            "tags": ",".join(tags),
+        }
+        return "https://watabou.github.io/village-generator/?" + urlencode(params)
+
+    def link_for(b):
+        if b.get("link"):
+            return b["link"]                 # GM-set custom link always wins
+        cell = cells.get(b.get("cell"))
+        preview = previews.get(b.get("group") or "")
+        if not cell or not preview:
+            return ""
+        if preview == "watabou-city":
+            return city_link(b, cell)
+        if preview == "watabou-village":
+            return village_link(b, cell)
+        return ""                            # watabou-dwelling etc. — not used
+
+    return link_for
+
+
 def burg_note(b):
     """A short human description for a settlement popup, led by its burg group."""
     pop = int(round((b.get("population") or 0) * 1000))
@@ -541,10 +751,12 @@ def burg_note(b):
     return f"{head}. Population ~{pop:,}."
 
 
-def build_markers(markers, revealed, grid, project, burgs, to_world):
+def build_markers(markers, revealed, grid, project, burgs, to_world, link_for):
     """POI markers (landmarks/hazards, from the GeoJSON) plus burgs (settlements,
     from the JSON) in the site's markers.json schema. Settlements carry extra
-    fields the renderer uses to pick a shape/size and show a burg link."""
+    fields the renderer uses to pick a shape/size and show a burg link. Legends
+    are stripped to plain text; any embedded URL (dungeon maps, character cards)
+    moves to `link` for the popup preview."""
     out = []
     for m in markers:
         lon, lat = m["geometry"]["coordinates"]
@@ -552,13 +764,17 @@ def build_markers(markers, revealed, grid, project, burgs, to_world):
             continue
         p = m["properties"]
         wx, wy = project(lon, lat)
-        out.append({
+        note, link = clean_legend(p.get("legend"))
+        entry = {
             "id": p.get("id"),
             "category": MARKER_CATEGORY.get(p.get("type"), "landmarks"),
             "x": wx, "y": wy,
             "name": p.get("name") or p.get("type", "Marker"),
-            "note": p.get("legend") or "",
-        })
+            "note": note,
+        }
+        if link:
+            entry["link"] = link
+        out.append(entry)
 
     # Burgs -> settlements. Filter by the burg's own cell (precise).
     for b in burgs:
@@ -571,7 +787,7 @@ def build_markers(markers, revealed, grid, project, burgs, to_world):
             "x": wx, "y": wy,
             "name": b.get("name") or "Settlement",
             "note": burg_note(b),
-            "link": b.get("link") or "",            # burg-preview href, if the GM set one
+            "link": link_for(b),                    # Watabou map (or GM-set href)
             "group": b.get("group") or "town",      # capital/city/town/village/fort/monastery/…
             "port": 1 if b.get("port") else 0,
             "population": int(round((b.get("population") or 0) * 1000)),
@@ -585,7 +801,8 @@ def build_markers(markers, revealed, grid, project, burgs, to_world):
     return {"categories": cat_defs, "markers": out}
 
 
-def build_hidden_locations(markers, burgs, grid, project, to_world, static_revealed):
+def build_hidden_locations(markers, burgs, grid, project, to_world, static_revealed,
+                           link_for):
     """POI markers + burgs whose cell is NOT statically revealed, as
     {id, cell_id, category, data} rows for the gated hidden_locations table. `data`
     matches the markers.json marker schema, so the renderer draws them like static
@@ -602,11 +819,15 @@ def build_hidden_locations(markers, burgs, grid, project, to_world, static_revea
         wx, wy = project(lon, lat)
         mid = f"poi{p.get('id')}"
         cat = MARKER_CATEGORY.get(p.get("type"), "landmarks")
-        rows.append({"id": mid, "cell_id": cell, "category": cat, "data": {
+        note, link = clean_legend(p.get("legend"))
+        data = {
             "id": mid, "category": cat, "x": wx, "y": wy,
             "name": p.get("name") or p.get("type", "Marker"),
-            "note": p.get("legend") or "",
-        }})
+            "note": note,
+        }
+        if link:
+            data["link"] = link
+        rows.append({"id": mid, "cell_id": cell, "category": cat, "data": data})
 
     for b in burgs:
         cell = b.get("cell")
@@ -617,7 +838,7 @@ def build_hidden_locations(markers, burgs, grid, project, to_world, static_revea
         rows.append({"id": bid, "cell_id": cell, "category": "settlements", "data": {
             "id": bid, "category": "settlements", "x": wx, "y": wy,
             "name": b.get("name") or "Settlement", "note": burg_note(b),
-            "link": b.get("link") or "",
+            "link": link_for(b),
             "group": b.get("group") or "town",
             "port": 1 if b.get("port") else 0,
             "population": int(round((b.get("population") or 0) * 1000)),
@@ -768,7 +989,9 @@ def cmd_build(args):
     geo = load_azgaar_geo(resources)
     to_world = make_pixel_projector(args.scale, args.origin_x, args.origin_y)
     if args.markers:
-        mk = build_markers(markers, revealed, grid, project, geo["burgs"], to_world)
+        link_for = make_burg_linker(resources)
+        mk = build_markers(markers, revealed, grid, project, geo["burgs"], to_world,
+                           link_for)
         _write_json(os.path.join(out_dir, "markers.json"), mk)
         settle = sum(1 for m in mk["markers"] if m["category"] == "settlements")
         print(f"  wrote markers.json ({len(mk['markers'])} markers, {settle} settlements)")
@@ -953,7 +1176,7 @@ def cmd_upload(args):
     geo = load_azgaar_geo(resources)
     to_world = make_pixel_projector(args.scale, args.origin_x, args.origin_y)
     loc_rows = build_hidden_locations(markers, geo["burgs"], grid, project, to_world,
-                                      static_revealed)
+                                      static_revealed, make_burg_linker(resources))
     print(f"hidden locations: {len(loc_rows)}")
 
     if args.dry_run:

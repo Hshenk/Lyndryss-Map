@@ -21,12 +21,29 @@ import { ANNOTATIONS_STORAGE_KEY } from "./config.js";
 let annotations = [];
 
 
-function save() {
+function saveLocal() {
   try {
     localStorage.setItem(ANNOTATIONS_STORAGE_KEY, JSON.stringify(annotations));
   } catch {
     // Storage unavailable - annotations won't survive refresh 
   }
+}
+
+
+// Acts as out backend if we are not logged in
+const localBackend = {
+  add()    { saveLocal(); },
+  update() { saveLocal(); },
+  remove() { saveLocal(); },
+  clear()  { saveLocal(); },
+};
+
+let backend = localBackend;
+
+
+/** Swap the persistence backend  */
+export function setAnnotationBackend(b) {
+  backend = b ?? localBackend;
 }
 
 
@@ -57,7 +74,7 @@ export function getAnnotations() {
  */
 export function addAnnotation(annotation) {
   annotations.push(annotation);
-  save();
+  backend.add(annotation);
 }
 
 /**
@@ -67,10 +84,9 @@ export function addAnnotation(annotation) {
  */
 export function updateAnnotation(id, changes) {
   const target = annotations.find((a) => a.id === id);
-  if (target) {
-    Object.assign(target, changes);
-    save();
-  }
+  if (!target) return;
+  Object.assign(target, changes);
+  backend.update(id, target);
 }
 
 /**
@@ -79,13 +95,23 @@ export function updateAnnotation(id, changes) {
  */
 export function removeAnnotation(id) {
   annotations = annotations.filter((a) => a.id !== id);
-  save();
+  backend.remove(id);
 }
 
 /** Remove everything (the "Clear all my marks" button). Confirm in ui.js first. */
 export function clearAnnotations() {
   annotations = [];
-  save();
+  backend.clear();
+}
+
+/** Replace the whole in-memory set */
+export function setAnnotations(list) {
+  annotations = Array.isArray(list) ? list : [];
+}
+
+/** Wipe the local storage copy, but keeps in-memory set */
+export function clearLocalStorageAnnotations() {
+  try { localStorage.removeItem(ANNOTATIONS_STORAGE_KEY); } catch {}
 }
 
 /**

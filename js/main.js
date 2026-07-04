@@ -9,7 +9,7 @@ import { createRenderer } from "./renderer.js";
 import { loadAnnotations } from "./annotations.js";
 import { readViewFromHash, writeViewToHash, onHashChange } from "./url-state.js";
 import { onLayersChanged, setActiveOverlay, getVisibleLayerIds } from "./layers.js";
-import { initUI, showError, refreshGMUI } from "./ui.js";
+import { initUI, showError, refreshGMUI, refreshPlayerUI } from "./ui.js";
 import { initLive } from "./live.js";
 
 // How often to check for new map pushed to folder (In ms)
@@ -69,14 +69,16 @@ async function init() {
 
     window.lyndryss = { renderer, manifest };
 
-    // 6.5 Realtime session layer
+    // 7. Realtime session layer
     initLive(() => {
       renderer.render();
       refreshGMUI();
+      refreshPlayerUI();
     }).catch((err) => console.warn("live layer failed (map still works):", err));
     refreshGMUI();
+    refreshPlayerUI();
 
-    // 7. Prompt the user if the GM has updated the map
+    // 8. Prompt the user if the GM has updated the map
     setInterval(async () => {
       if (await checkForUpdates()) {
         showError("The GM has updated the map - refresh to see what's new!");

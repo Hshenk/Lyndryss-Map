@@ -36,7 +36,8 @@ import { setActiveOverlay, getActiveOverlay, setCategoryVisible, isCategoryVisib
   setRiversVisible, setRoutesVisible, setLabelsVisible } from "./layers.js";
 import { getCategories, getCategoryCount, getCategoryIcon, searchMarkers } from "./markers.js";
 import { updateAnnotation, removeAnnotation, clearAnnotations } from "./annotations.js";
-import { signIn, signOut, isGM, gmEmail, removeToken, revealLocation, locationIndividuallyRevealed } from "./live.js";
+import { signIn, signOut, isGM, gmEmail, removeToken, revealLocation, locationIndividuallyRevealed,
+         signUp, isSignedIn, accountEmail } from "./live.js";
 
 
 /**
@@ -69,6 +70,12 @@ export function setActiveTool(tool) {
   document.body.classList.toggle("is-placing", tool !== "pan");
 }
 
+// The URL to load in the popup's preview iframe for locations
+function previewURL(link) {
+  if (!link.includes("watabou.github.io")) return link;
+  return link + (link.includes("?") ? "&" : "?") + "preview=1";
+}
+
 
 /**
  * Bind every control. Call once from main.js after data + renderer exist.
@@ -87,6 +94,8 @@ export function initUI(r) {
   bindSearch();
   bindErrorDismiss();
   bindGM();
+  bindPlayerAccount();
+  refreshPlayerUI();
   bindGMToggle();
   bindTokenTools();
 }
@@ -157,6 +166,12 @@ export function openMarkerPopup(marker, sx, sy) {
   if (marker.link) {
     link.href = marker.link;
     link.classList.remove("is-hidden");
+
+    // Generate location map: embed a clan render of the same link
+    const frame = popup.querySelector(".popup__preview-frame");
+    frame.src = previewURL(marker.link);
+    popup.querySelector(".popup__preview").classList.remove("is-hidden");
+    popup.classList.add("popup--wide");
   }
 
 
@@ -393,6 +408,47 @@ function bindGM() {
   });
 }
 
+function bindPlayerAccount() {
+  const form = document.getElementById("player-auth");
+  const msg = document.getElementById("player-auth-msg");
+  const showMsg = (text, ok = false) => {
+    msg.textContent = text ?? "";
+    msg.classList.toggle("is-ok", ok);
+    msg.classList.toggle("is-hidden", !text);
+  };
+
+  // Sign in
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    showMsg("");
+    const email = document.getElementById("player-email").value.trim();
+    const password = document.getElementById("player-password").value;
+    const res = await signIn(email, password);
+    if (res.ok) { form.reset(); refreshPlayerUI(); }
+    else showMsg(res.error ?? "Sign-in failed.");
+  });
+
+  // Create Player Account
+  document.getElementById("player-signup").addEventListener("click", async() => {
+    showMsg("");
+    const email = document.getElementById("player-email").value.trim();
+    const password = document.getElementById("player-password").value;
+    if (!email || password.length < 6) {
+      showMsg("Enter an email and password of at least 6 characters");
+      return;
+    }
+    const res = await signUp(email, password);
+    if (!res.ok) { showMsg(res.error ?? "Sign-up failed."); return; }
+    if (res.needsConfirm) showMsg("Check your email to confirm, then sign in.", true);
+    else { form.reset(); refreshPlayerUI(); }
+  });
+
+  document.getElementById("player-signout").addEventListener("click", async () => {
+    await signOut();
+    refreshPlayerUI;
+  });
+}
+
 // Collapsable GM Panel
 function bindGMToggle() {
   const toggle = document.getElementById("gm-toggle");
@@ -414,6 +470,16 @@ export function refreshGMUI() {
   document.getElementById("gm-login").classList.toggle("is-hidden", signedIn);
   document.getElementById("gm-tools").classList.toggle("is-hidden", !signedIn);
   if (signedIn) document.getElementById("gm-who").textContent = gmEmail();
+}
+
+export function refreshPlayerUI() {
+  const signedIn = isSignedIn();
+  document.getElementById("player-auth").classList.toggle("is-hidden", signedIn);
+  document.getElementById("player-session").classList.toggle("is-hidden", !signedIn);
+  if (signedIn) document.getElementById("player-who").textContent = accountEmail();
+  document.getElementById("notes-hint").textContent = signedIn
+    ? "Your marks sync to your account - you'll see them on any device."
+    : "Your marks are saved in this browser only until you sign in.";
 }
 
 function bindBulkButtons() {
@@ -537,7 +603,7 @@ function bindAnnotationTools() {
 
   // Warning when trying to clear all annotations
   document.getElementById("annotation-clear").addEventListener("click", () => {
-    if (confirm("Remove all of your markers and notes from the browser?")) {
+    if (confirm("Remove all of your icons and notes?")) {
       clearAnnotations();
       closePopups();
       renderer.render();

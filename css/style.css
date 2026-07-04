@@ -331,6 +331,26 @@ body.is-placing .map-canvas {
   text-decoration: underline;
 }
 
+/* Watabou location-map preview (Phase 3). JS adds .popup--wide alongside the
+   preview so the embedded map gets room; min() keeps it on phone screens. */
+.popup--wide {
+  max-width: min(420px, calc(100vw - 32px));
+}
+
+.popup__preview {
+  margin-top: 10px;
+}
+
+.popup__preview-frame {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel);
+  pointer-events: none; /* preview is a picture — the link opens the real thing */
+}
+
 .popup__textarea {
   width: 100%;
   margin-top: 4px;
@@ -763,6 +783,59 @@ body.is-placing .map-canvas {
   padding: 5px 10px;
 }
 
+/* ---- Player account (Phase 3): sync notes across devices ---- */
+.player-account {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  background: var(--panel-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.player-auth {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.player-auth .hint {
+  margin-bottom: 2px;
+}
+
+.player-auth__actions {
+  display: flex;
+  gap: 6px;
+}
+
+.player-auth__actions .btn {
+  flex: 1;
+}
+
+.player-auth__msg {
+  margin: 0;
+  font-size: 12px;
+  color: var(--danger);
+}
+
+/* Confirmations ("check your email") reuse the same slot but read muted. */
+.player-auth__msg.is-ok {
+  color: var(--text-muted);
+}
+
+.player-session {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.player-session__signout {
+  align-self: flex-start;
+  font-size: 12px;
+  padding: 5px 10px;
+}
+
 /* ---- Game Master floating menu (Phase 2) ---- */
 /* Pinned inside the map viewport, top-left, just below the header. Independent
    of the sidebar so both can be open at once. */
@@ -952,6 +1025,39 @@ body.is-placing .map-canvas {
 
 .gm-tools:has(#tool-token.is-active) .token-options {
   display: flex;
+}
+
+/* Ping options (Phase 3, guide 03). In the sidebar (#player-ping-tools) the
+   block is always laid out; JS toggles .is-hidden by sign-in state. In the GM
+   panel it appears only while the ping tool is armed, like token options. */
+.ping-options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.gm-tools .ping-options {
+  display: none;
+  margin-top: 0;
+  padding: 0 4px;
+}
+
+.gm-tools:has(#tool-ping.is-active) .ping-options {
+  display: flex;
+}
+
+.gm-player-pings {
+  margin-top: 2px;
+}
+
+.annotation-color {
+  margin: 2px 0;
+}
+
+.tool-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .token-color {

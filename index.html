@@ -113,6 +113,25 @@
             </button>
           </div>
 
+          <!-- Ping color (Phase 3, guide 03): CSS shows this only while the
+               ping tool is armed, like token options. JS: writes
+               state.selectedPingColor. -->
+          <div class="ping-options">
+            <label class="token-color">
+              <span>Ping color</span>
+              <input id="gm-ping-color" class="token-color__input" type="color" value="#ffd24a">
+            </label>
+          </div>
+
+          <!-- Player-ping kill switch (always visible once signed in). JS:
+               change drives live.setPlayerPingsEnabled; refreshGMUI reflects
+               live.playerPingsEnabled() back into the checkbox. -->
+          <label class="switch gm-player-pings">
+            <input type="checkbox" id="gm-player-pings" class="switch__input" checked>
+            <span class="switch__track" aria-hidden="true"></span>
+            <span class="switch__label">Allow player pings</span>
+          </label>
+
           <!-- Reveal tools (05c): with one active, the GM sees unrevealed cells
                dimmed (prep view) and clicks to reveal at that scope — the cell,
                its whole province, or its whole state. Clicking an already-revealed
@@ -302,6 +321,23 @@
               Measure distance
             </button>
           </div>
+
+          <!-- Player ping (Phase 3, guide 03): signed-in players can pulse the
+               map for everyone at the table. JS (refreshPlayerUI): unhide for
+               signed-in non-GM accounts; while the GM has player pings switched
+               off, disable the button and unhide the hint instead. Shares
+               data-tool="ping" with the GM button, so setActiveTool highlights
+               whichever is visible. -->
+          <div id="player-ping-tools" class="ping-options is-hidden">
+            <button id="tool-ping-player" class="btn tool-btn" type="button" data-tool="ping" aria-pressed="false">
+              Ping the map
+            </button>
+            <label class="token-color">
+              <span>Ping color</span>
+              <input id="player-ping-color" class="token-color__input" type="color" value="#ffd24a">
+            </label>
+            <p id="player-ping-hint" class="hint is-hidden">The GM has turned player pings off.</p>
+          </div>
         </div>
       </details>
 
@@ -309,7 +345,47 @@
       <details class="sidebar-section" open>
         <summary class="sidebar-section__title">Your Notes</summary>
         <div id="annotation-tools" class="annotation-tools">
-          <p class="hint">Marks live in this browser only — they aren’t shared or saved to the map.</p>
+
+          <!-- Player account (Phase 3): sign in to sync your icons + notes to
+               Supabase and see them on any device. Signed out, marks are saved
+               in this browser only (localStorage), exactly as before. JS
+               (ui.js bindPlayerAccount / refreshPlayerUI) toggles the two views
+               and drives live.signIn / signUp / signOut. Row-Level Security ties
+               every annotation row to your user id, so players never see each
+               other's marks. This is a SEPARATE login from the GM panel; a
+               non-GM account never unlocks the GM tools (see guide-phase3/02). -->
+          <div id="player-account" class="player-account">
+            <form id="player-auth" class="player-auth" autocomplete="on">
+              <p class="hint">Sign in to sync your marks across devices — or keep placing them locally below.</p>
+              <label class="gm-login__field">
+                <span class="gm-login__label">Email</span>
+                <input id="player-email" class="gm-login__input" type="email" name="email"
+                       autocomplete="username" placeholder="you@example.com" required>
+              </label>
+              <label class="gm-login__field">
+                <span class="gm-login__label">Password</span>
+                <input id="player-password" class="gm-login__input" type="password" name="password"
+                       autocomplete="current-password" placeholder="••••••••" required minlength="6">
+              </label>
+              <div class="player-auth__actions">
+                <button id="player-signin" class="btn btn--primary" type="submit">Sign in</button>
+                <button id="player-signup" class="btn btn--ghost" type="button">Create account</button>
+              </div>
+              <!-- JS sets text + toggles .is-hidden / .is-ok (errors are red;
+                   "check your email" confirmations add .is-ok to read muted). -->
+              <p id="player-auth-msg" class="player-auth__msg is-hidden" role="alert"></p>
+            </form>
+
+            <!-- Signed-in view. JS unhides this and hides #player-auth. -->
+            <div id="player-session" class="player-session is-hidden">
+              <p class="gm-tools__status">Signed in as <span id="player-who">—</span></p>
+              <button id="player-signout" class="btn btn--ghost player-session__signout" type="button">Sign out</button>
+            </div>
+          </div>
+
+          <!-- Dynamic sync-status line. JS (refreshPlayerUI) rewrites this to say
+               whether marks are local-only or syncing to the account. -->
+          <p id="notes-hint" class="hint">Your marks are saved in this browser only until you sign in.</p>
 
           <!-- Tool mode buttons. JS: set .is-active + aria-pressed on the engaged
                tool and switch map pointer behavior (place icon / place note / pan). -->
@@ -337,6 +413,14 @@
               <img src="assets/icons/question.svg" alt="Mystery" width="18" height="18">
             </button>
           </div>
+
+          <!-- Mark color (Phase 3, guide 03): tints your icon badges and note
+               pins. Works signed out too — the color is saved with each mark.
+               JS: writes state.selectedAnnotationColor. -->
+          <label class="token-color annotation-color">
+            <span>Mark color</span>
+            <input id="annotation-color" class="token-color__input" type="color" value="#e0b75c">
+          </label>
 
           <button id="annotation-clear" class="btn btn--danger annotation-tools__clear" type="button">
             Clear all my marks
@@ -379,8 +463,16 @@
       <button class="popup__close btn btn--icon" type="button" aria-label="Close">×</button>
       <h3 class="popup__title"></h3>
       <p class="popup__body"></p>
-      <!-- Settlements with a burg-preview link show this; JS sets href + unhides. -->
-      <a class="popup__link is-hidden" target="_blank" rel="noopener noreferrer">View burg ↗</a>
+      <!-- Generated location map (Phase 3): JS sets the iframe src (watabou
+           links get &preview=1 for a clean UI-less render), unhides this, and
+           adds .popup--wide to the popup. pointer-events are off in CSS — the
+           preview is a picture; the link below opens the interactive version. -->
+      <div class="popup__preview is-hidden">
+        <iframe class="popup__preview-frame" loading="lazy" referrerpolicy="no-referrer"
+                sandbox="allow-scripts allow-same-origin" title="Location map"></iframe>
+      </div>
+      <!-- Markers with a link show this; JS sets href + unhides. -->
+      <a class="popup__link is-hidden" target="_blank" rel="noopener noreferrer">Open full map ↗</a>
       <!-- GM-only, live locations only (05e-5): reveal/un-reveal this location.
            JS (openMarkerPopup) unhides this when isGM() and the marker is a live
            one, sets the label (Reveal/Hide), and wires it to live.revealLocation. -->
