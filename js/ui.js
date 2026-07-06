@@ -37,7 +37,7 @@ import { setActiveOverlay, getActiveOverlay, setCategoryVisible, isCategoryVisib
 import { getCategories, getCategoryCount, getCategoryIcon, searchMarkers } from "./markers.js";
 import { updateAnnotation, removeAnnotation, clearAnnotations } from "./annotations.js";
 import { signIn, signOut, isGM, gmEmail, removeToken, revealLocation, locationIndividuallyRevealed,
-         signUp, isSignedIn, accountEmail } from "./live.js";
+         signUp, isSignedIn, accountEmail, playerPingsEnabled, setPlayerPingsEnabled } from "./live.js";
 
 
 /**
@@ -52,6 +52,8 @@ const state = {
   selectedTokenIcon: "skull",
   selectedTokenColor: "#e06c5c",
   tokenLabel: "",
+  selectedPingColor: "#ffd24a",
+  selectedAnnotationColor: "#e0b75c",
 };
 
 
@@ -98,6 +100,7 @@ export function initUI(r) {
   refreshPlayerUI();
   bindGMToggle();
   bindTokenTools();
+  bindPingControls();
 }
 
 
@@ -470,6 +473,7 @@ export function refreshGMUI() {
   document.getElementById("gm-login").classList.toggle("is-hidden", signedIn);
   document.getElementById("gm-tools").classList.toggle("is-hidden", !signedIn);
   if (signedIn) document.getElementById("gm-who").textContent = gmEmail();
+  document.getElementById("gm-player-pings").checked = playerPingsEnabled();
 }
 
 export function refreshPlayerUI() {
@@ -480,6 +484,14 @@ export function refreshPlayerUI() {
   document.getElementById("notes-hint").textContent = signedIn
     ? "Your marks sync to your account - you'll see them on any device."
     : "Your marks are saved in this browser only until you sign in.";
+  
+  // Player ping tool
+  const showPing = signedIn && !isGM();
+  document.getElementById("player-ping-tools").classList.toggle("is-hidden", !showPing);
+  const allowed = playerPingsEnabled();
+  document.getElementById("tool-ping-player").disabled = !allowed;
+  document.getElementById("player-ping-hint").classList.toggle("is-hidden", allowed);
+  if (showPing && !allowed && state.activeTool === "ping") setActiveTool("pan");  // Kicks players out of the tool when disabled
 }
 
 function bindBulkButtons() {
@@ -571,6 +583,7 @@ function bindAnnotationTools() {
     document.getElementById("tool-reveal-province"),
     document.getElementById("tool-reveal-state"),
     document.getElementById("tool-reveal-water"),
+    document.getElementById("tool-ping-player"),
   ];
 
   for (const button of toolButtons) {
@@ -608,5 +621,28 @@ function bindAnnotationTools() {
       closePopups();
       renderer.render();
     }
+  });
+}
+
+//   --- Ping Functions ---
+function bindPingControls() {
+  // There are two ping color pickers (One for players one for GM)
+  // They should mirror each other for consistency 
+  const pickers = ["gm-ping-color", "player-ping-color"]
+    .map((id) => document.getElementById(id));
+  for (const input of pickers) {
+    input.addEventListener("input", () => {
+      state.selectedPingColor = input.value;
+      for (const other of pickers) if (other !== input) other.value = input.value;
+    });
+  }
+
+  document.getElementById("annotation-color").addEventListener("input", (e) => {
+    state.selectedAnnotationColor = e.target.value;
+  });
+
+  // GM Kill switch for pings
+  document.getElementById("gm-player-pings").addEventListener("change", (e) => {
+    setPlayerPingsEnabled(e.target.checked);
   });
 }

@@ -44,6 +44,9 @@ let flushTimer = null;
 let liveMarkers = [];
 let revealedLocationIds = new Set();
 
+// Pings and public settings
+let playerPings = true;
+let settingsChannel = null;
 
 
 
@@ -130,6 +133,25 @@ export async function initLive(onChange) {
     .subscribe();
   
 
+  // Session settings. Read once, then track
+  const { data: settingsRow } = await supabase
+    .from("session_settings").select("player_pings")
+    .eq("session_id", SESSION_ID).maybeSingle();
+  if (settingsRow) playerPings = settingsRow.player_pings;
+
+  settingsChannel = supabase
+    .channel(`settings-${SESSION_ID}`)
+    .on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "session_settings",
+        filter: `session_id=eq.${SESSION_ID}` },
+      (payload) => {
+        if (payload.eventType !== "DELETE") playerPings = payload.new.player_pings;
+        notifyChange();
+      },
+    )
+    .subscribe();
+
   // Auth + first reveal load.
   await applyAuth();
   revealChannel = supabase.channel("revealed_cells")
@@ -152,7 +174,7 @@ function addLocalPing(row) {
 
 
   const createdAt = Date.now();
-  pings.push({ id: row.id, x: row.x, y: row.y, created_at: createdAt });
+  pings.push({ id: row.id, x: row.x, y: row.y, color: row.color, created_at: createdAt });
   notifyChange();
 
   // remove it once its pulse is over then re-render to clear it
@@ -180,11 +202,11 @@ export function getPings() {
  * @param {number} y world px
  * @returns {Promise<void>}
  */
-export async function sendPing(x, y) {
+export async function sendPing(x, y, color) {
   if (!supabase) return;
   const { error } = await supabase
     .from("pings")
-    .insert({ session_id: SESSION_ID, x, y });
+    .insert({ session_id: SESSION_ID, x, y, color});
   if (error) console.warn("ping insert failed:", error.message);
 }
 
@@ -262,14 +284,14 @@ const cloudBackend = {
 async function insertPlayerAnnotation(a) {
   const { error } = await supabase.from("player_annotations").insert({
     id: a.id, user_id: session.userId,
-    kind: a.kind, icon: a.icon, x: a.x, y: a.y, text: a.text ?? "",
+    kind: a.kind, icon: a.icon, color: a.color ?? null, x: a.x, y: a.y, text: a.text ?? "",
   });
   if (error) console.warn("annotation save failed:", error.message);
 }
 
 async function updatePlayerAnnotation(a) {
   const { error } = await supabase.from("player_annotations").update({
-    kind: a.kind, icon: a.icon, x: a.x, y:a.y, text: a.text ?? "",
+    kind: a.kind, icon: a.icon, color: a.color ?? null, x: a.x, y:a.y, text: a.text ?? "",
     updated_at: new Date().toISOString(),
   }).eq("id", a.id);
   if (error) console.warn("annotation update failed:", error.message);
@@ -287,9 +309,9 @@ async function clearPlayerAnnotations() {
 
 async function loadPlayerAnnotations() {
   const rows = await pageAll(() => supabase.from("player_annotations")
-    .select("id, kind, icon, x, y, text").order("updated_at"));
+    .select("id, kind, icon, color, x, y, text").order("updated_at"));
   return rows.map((r) => ({
-    id: r.id, kind: r.kind, icon: r.icon, x: r.x, y: r.y, text: r.text ?? "",
+    id: r.id, kind: r.kind, icon: r.icon, color: r.color ?? null, x: r.x, y: r.y, text: r.text ?? "",
   }));
 }
 
@@ -299,7 +321,7 @@ async function migrateLocalAnnotations() {
   if (!local.length) return;
   const rows = local.map((a) => ({
     id: a.id, user_id: session.userId,
-    kind: a.kind, icon: a.icon, x: a.x, y: a.y, text: a.text ?? "",
+    kind: a.kind, icon: a.icon, color: a.color ?? null, x: a.x, y: a.y, text: a.text ?? "",
   }));
   const { error } = await supabase.from("player_annotations")
     .upsert(rows, { onConflict: "id", ignoreDuplicates: true});
@@ -661,4 +683,17 @@ async function flushReveals() {
     // Players can't hold the full catalog so refetch the visible set, but only once per burst
     await refreshRevealed();
   }
+}
+
+
+//   --- Pings ---
+export function playerPingsEnabled() { return playerPings; }
+export async function setPlayerPingsEnabled(on) {
+  if (!supabase) return;
+  playerPings = on;
+  const { error } = await supabase.from("session_settings").upsert(
+    { session_id: SESSION_ID, player_pings: on, updated_at: new Date().toISOString() },
+    { onConflict: "session_id" },
+  );
+  if (error) console.warn("settings update failed:", error.message);
 }

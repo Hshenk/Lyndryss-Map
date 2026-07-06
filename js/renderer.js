@@ -236,7 +236,7 @@ export function createRenderer(canvas, manifest, onViewChange) {
       }
     }
     for (const a of getAnnotations()) {
-      drawBadge(a.x, a.y, `assets/icons/${a.icon}.svg`, ANNOTATION_RING);
+      drawBadge(a.x, a.y, `assets/icons/${a.icon}.svg`, a.color || ANNOTATION_RING);
     }
 
     for (const token of getTokens()) drawToken(token);
@@ -493,6 +493,7 @@ export function createRenderer(canvas, manifest, onViewChange) {
 
   // --- Pings ---
   function drawPing(ping, now) {
+    const color = ping.color || PING_COLOR;
     const p = worldToScreen(ping.x, ping.y);
     const t = Math.min((now - ping.created_at) / PING_LIFETIME_MS, 1);
     const r = 6 + t * 34; // Ring grows outward
@@ -501,13 +502,13 @@ export function createRenderer(canvas, manifest, onViewChange) {
     ctx.globalAlpha = alpha;
     ctx.beginPath();
     ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
-    ctx.strokeStyle = PING_COLOR;
+    ctx.strokeStyle = color;
     ctx.lineWidth = 3;
     ctx.stroke();
 
     ctx.beginPath(); // Solid center dot
     ctx.arc(p.x, p.y, 4, 0, Math.PI * 2);
-    ctx.fillStyle = PING_COLOR;
+    ctx.fillStyle = color;
     ctx.fill();
     ctx.globalAlpha = 1;
   }
@@ -528,6 +529,7 @@ export function createRenderer(canvas, manifest, onViewChange) {
 
   // Draw an edge arrow pointing toward off screen pings. Return true if off screen, and thus handled
   function drawOffscreenPing(ping, now, w, h) {
+    const color = ping.color || PING_COLOR;
     const p = worldToScreen(ping.x, ping.y);
     const onScreen = p.x >= 0 && p.x <= w && p.y >= 0 && p.y <=h;
     if (onScreen) return false;
@@ -548,7 +550,7 @@ export function createRenderer(canvas, manifest, onViewChange) {
     ctx.lineTo(-7, -9);
     ctx.lineTo(-7, 9);
     ctx.closePath();
-    ctx.fillStyle = PING_COLOR;
+    ctx.fillStyle = color;
     ctx.fill();
 
     ctx.restore();
@@ -935,9 +937,9 @@ export function createRenderer(canvas, manifest, onViewChange) {
     }
 
 
-    // GM live ping
+    // Live ping
     if (ui.activeTool === "ping") {
-      sendPing(wpt.x, wpt.y);
+      sendPing(wpt.x, wpt.y, ui.selectedPingColor);
       return;
     }
 
@@ -973,6 +975,7 @@ export function createRenderer(canvas, manifest, onViewChange) {
         id: crypto.randomUUID(),
         kind: ui.activeTool,
         icon: ui.activeTool === "icon" ? ui.selectedIcon : "question",
+        color: ui.selectedAnnotationColor,
         x: wpt.x,
         y: wpt.y,
         text: "",

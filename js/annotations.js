@@ -10,6 +10,7 @@
  * @property {"icon" | "note"} kind
  * @property {string} icon      palette id: "flag" | "skull" | "chest" | "question"
  *                              (notes can reuse "question" or get their own pin)
+ * @property {string} [color] Annotation ring color
  * @property {number} x world px
  * @property {number} y world px
  * @property {string} [text]    note body, ≤500 chars (textarea enforces it)
