@@ -277,7 +277,7 @@ export function riverAt(wx, wy, tol) {
 }
 
 /** Squared distance from point to segment  */
-function distToSegmentSq(px, py, a, b) {
+export function distToSegmentSq(px, py, a, b) {
     const dx = b[0] - a[0], dy = b[1] - a[1];
     const len2 = dx * dx + dy * dy;
     let t = len2 ? ((px - a[0]) * dx + (py - a[1]) * dy) / len2 : 0;

@@ -13,7 +13,7 @@ import {
   SESSION_ID,
   PING_LIFETIME_MS,
 } from "./config.js";
-import { forEachRing, mergeOverlays, forEachLine, setLiveBorderCells } from "./map-data.js";
+import { forEachRing, mergeOverlays, forEachLine, setLiveBorderCells, distToSegmentSq } from "./map-data.js";
 import { getAnnotations, setAnnotations, setAnnotationBackend,
          clearLocalStorageAnnotations, loadAnnotations } from "./annotations.js";
 
@@ -565,6 +565,19 @@ export function getLiveRivers() { return liveRivers; }
 export function getLiveRoutes() { return liveRoutes; }
 export function lineRevealed(seg) {
   return (cellLevels.get(seg._cell) ?? 0) >= seg._min;
+}
+export function liveRiverAt(wx, wy, tol) {
+  let best = null, bestD = tol * tol;
+  for (const r of liveRivers) {
+    if (!lineRevealed(r)) continue;
+    forEachLine(r.geometry, (coords) => {
+      for (let i = 0; i < coords.length - 1; i++) {
+        const d = distToSegmentSq(wx, wy, coords[i], coords[i +1]);
+        if (d < bestD) { bestD = d; best = r; }
+      }
+    });
+  }
+  return best;
 }
 
 
