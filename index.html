@@ -213,6 +213,25 @@
       </div>
     </main>
 
+    <!-- ================= Lore panel (Phase 3, guide 04) ================= -->
+    <!-- Left column that embeds a WikiLore article for a clicked location —
+         the wiki twin of the right sidebar. JS (openLorePanel in ui.js) sets
+         the iframe src (WIKILORE_URL + "?embed=1#/" + slug — embed mode hides
+         the wiki's chrome), fills the title, points the ↗ link at the full
+         article, and unhides the panel. Same-origin (both on hshenk.github.io),
+         so the viewer's signed-in session works inside the iframe — players
+         and the GM each see exactly what the wiki's RLS allows them to. -->
+    <aside id="lore-panel" class="lore-panel is-hidden" aria-label="Lore article">
+      <div class="lore-panel__header">
+        <h2 id="lore-panel-title" class="lore-panel__title">Lore</h2>
+        <a id="lore-panel-open" class="lore-panel__open" target="_blank"
+           rel="noopener noreferrer" title="Open in WikiLore">Full article ↗</a>
+        <button id="lore-panel-close" class="btn btn--icon lore-panel__close" type="button" aria-label="Close">×</button>
+      </div>
+      <iframe id="lore-panel-frame" class="lore-panel__frame" title="WikiLore article"
+              loading="lazy"></iframe>
+    </aside>
+
     <!-- ================= Sidebar ================= -->
     <!-- JS: toggle .sidebar--collapsed to hide/show. On narrow screens CSS turns
          this into a bottom sheet; the same class controls both. -->
@@ -473,6 +492,9 @@
       </div>
       <!-- Markers with a link show this; JS sets href + unhides. -->
       <a class="popup__link is-hidden" target="_blank" rel="noopener noreferrer">Open full map ↗</a>
+      <!-- Lore button (Phase 3, guide 04): JS unhides when the location index
+           has a WikiLore article for this marker's id, wired to openLorePanel. -->
+      <button class="popup__lore btn is-hidden" type="button">📖 Read lore</button>
       <!-- GM-only, live locations only (05e-5): reveal/un-reveal this location.
            JS (openMarkerPopup) unhides this when isGM() and the marker is a live
            one, sets the label (Reveal/Hide), and wires it to live.revealLocation. -->

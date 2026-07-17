@@ -26,9 +26,13 @@ export function readViewFromHash() {
   const x = Number(p.get("x"));
   const y = Number(p.get("y"));
   const scale = Number(p.get("zoom"));
-  if (![x, y, scale].every(Number.isFinite)) return null;
+  const marker = p.get("marker");
   const layers = (p.get("layers") ?? "").split(",").filter(Boolean);
-  return { x, y, scale, layers };
+  if (![x, y, scale].every(Number.isFinite)) {
+    return marker ? { x: NaN, y: NaN, scale: NaN, layers, marker } : null;
+  }
+  
+  return { x, y, scale, layers, marker };
 }
 
 

@@ -4,17 +4,34 @@
 
 import { MANIFEST_URL } from "./config.js";
 import { loadWorldData, getManifest } from "./map-data.js";
-import { loadMarkers } from "./markers.js";
+import { loadMarkers, getMarkerById } from "./markers.js";
 import { createRenderer } from "./renderer.js";
 import { loadAnnotations } from "./annotations.js";
 import { readViewFromHash, writeViewToHash, onHashChange } from "./url-state.js";
 import { onLayersChanged, setActiveOverlay, getVisibleLayerIds } from "./layers.js";
-import { initUI, showError, refreshGMUI, refreshPlayerUI } from "./ui.js";
-import { initLive } from "./live.js";
+import { initUI, showError, refreshGMUI, refreshPlayerUI, openMarkerPopup } from "./ui.js";
+import { initLive, getLiveMarkers } from "./live.js";
 
 // How often to check for new map pushed to folder (In ms)
 const UPDATE_POLL_MS = 60_000;
 
+let pendingMarker = null; // marker id from a #marker= deep link
+
+// Pan to an existing marker and open its popup, if it's loaded
+function focusPendingMarker(renderer) {
+  if (!pendingMarker) return;
+  const marker = getMarkerById(pendingMarker)
+    ?? getLiveMarkers().find((m) => m.id === pendingMarker);
+  if (!marker) return;
+
+  pendingMarker = null;
+  renderer.view.x = marker.x;
+  renderer.view.y = marker.y;
+  if (renderer.view.scale < 2) renderer.view.scale = 2;
+  renderer.render();
+  const p = renderer.worldToScreen(marker.x, marker.y);
+  openMarkerPopup(marker, p.x, p.y);
+}
 
 /**
  * Boot the app. Called once on DOMContentLoaded.
@@ -74,6 +91,7 @@ async function init() {
       renderer.render();
       refreshGMUI();
       refreshPlayerUI();
+      focusPendingMarker(renderer);
     }).catch((err) => console.warn("live layer failed (map still works):", err));
     refreshGMUI();
     refreshPlayerUI();
@@ -94,9 +112,12 @@ async function init() {
 /** Apply a parsed hash state (view + enabled overlays) to the map. */
 function applyHashState(renderer, state) {
   if (state === null) return;
-  renderer.view.x = state.x;
-  renderer.view.y = state.y;
-  renderer.view.scale = state.scale;
+  if (Number.isFinite(state.x)) {
+    renderer.view.x = state.x;
+    renderer.view.y = state.y;
+    renderer.view.scale = state.scale;
+  }
+
 
   // hash carried at most one layer, default to biome
   const mode = state.layers[0] ?? "biome";
@@ -105,6 +126,11 @@ function applyHashState(renderer, state) {
     const active = btn.dataset.mode === mode;
     btn.classList.toggle("is-active", active);
     btn.setAttribute("aria-pressed", String(active));
+  }
+
+  if (state.marker) {
+    pendingMarker = state.marker;
+    focusPendingMarker(renderer);
   }
   renderer.render();
 }

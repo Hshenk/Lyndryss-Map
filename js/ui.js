@@ -30,14 +30,14 @@
  */
 
 
-import { ZOOM_STEP } from "./config.js";
+import { ZOOM_STEP, WIKILORE_URL } from "./config.js";
 import { overlayPalette } from "./map-data.js";
 import { setActiveOverlay, getActiveOverlay, setCategoryVisible, isCategoryVisible, 
   setRiversVisible, setRoutesVisible, setLabelsVisible } from "./layers.js";
 import { getCategories, getCategoryCount, getCategoryIcon, searchMarkers } from "./markers.js";
 import { updateAnnotation, removeAnnotation, clearAnnotations } from "./annotations.js";
 import { signIn, signOut, isGM, gmEmail, removeToken, revealLocation, locationIndividuallyRevealed,
-         signUp, isSignedIn, accountEmail, playerPingsEnabled, setPlayerPingsEnabled } from "./live.js";
+         signUp, isSignedIn, accountEmail, playerPingsEnabled, setPlayerPingsEnabled, loreFor } from "./live.js";
 
 
 /**
@@ -101,6 +101,7 @@ export function initUI(r) {
   bindGMToggle();
   bindTokenTools();
   bindPingControls();
+  bindLorePanel();
 }
 
 
@@ -175,6 +176,17 @@ export function openMarkerPopup(marker, sx, sy) {
     frame.src = previewURL(marker.link);
     popup.querySelector(".popup__preview").classList.remove("is-hidden");
     popup.classList.add("popup--wide");
+  }
+
+  // WikiLore article
+  const lore = loreFor(marker.id);
+  if (lore) {
+    const loreBtn = popup.querySelector(".popup__lore");
+    loreBtn.classList.remove("is-hidden");
+    loreBtn.addEventListener("click", () => {
+      openLorePanel(lore);
+      closePopups();
+    });
   }
 
 
@@ -278,6 +290,24 @@ export function openRevealPopup(info, sx, sy, onConfirm) {
 
   popupLayer().append(popup);
   positionPopup(popup, sx, sy);
+}
+
+
+export function openLorePanel(lore) {
+  document.getElementById("lore-panel-frame").src =
+    WIKILORE_URL + "?embed=1#/" + lore.slug;
+  document.getElementById("lore-panel-title").textContent = lore.title;
+  document.getElementById("lore-panel-open").href = WIKILORE_URL + "#/" + lore.slug;
+  document.getElementById("lore-panel").classList.remove("is-hidden");
+}
+
+export function closeLorePanel() {
+  document.getElementById("lore-panel").classList.add("is-hidden");
+  document.getElementById("lore-panel-frame").src = "about:blank";
+}
+
+function bindLorePanel() {
+  document.getElementById("lore-panel-close").addEventListener("click", closeLorePanel);
 }
 
 
@@ -599,6 +629,7 @@ function bindAnnotationTools() {
     if (e.key === "Escape") {
       setActiveTool("pan");
       closePopups();
+      closeLorePanel();
     }
   });
 

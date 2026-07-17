@@ -28,6 +28,7 @@
   --radius-sm: 5px;
   --header-h: 52px;
   --sidebar-w: 300px;
+  --lore-w: 340px;
   --ease: 200ms ease;
   --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
@@ -847,6 +848,87 @@ body.is-placing .map-canvas {
   box-shadow: var(--shadow);
 }
 
+/* ---------- Lore panel (Phase 3, guide 04) ---------- */
+/* The wiki twin of the right sidebar: an absolute left column over the map.
+   The iframe inside loads WikiLore in embed mode (chrome hidden), so the
+   panel reads as a native part of the map UI. */
+.lore-panel {
+  position: absolute;
+  top: var(--header-h);
+  left: 0;
+  bottom: 0;
+  width: var(--lore-w);
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border-right: 1px solid var(--border);
+  box-shadow: var(--shadow);
+  z-index: 25;
+}
+
+.lore-panel__header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.lore-panel__title {
+  flex: 1;
+  margin: 0;
+  font-size: 15px;
+  font-weight: 650;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.lore-panel__open {
+  flex-shrink: 0;
+  color: var(--accent);
+  font-size: 12px;
+  text-decoration: none;
+}
+
+.lore-panel__open:hover {
+  text-decoration: underline;
+}
+
+.lore-panel__close {
+  flex-shrink: 0;
+  min-width: 24px;
+  min-height: 24px;
+  padding: 2px;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+}
+
+.lore-panel__close:hover {
+  color: var(--text);
+  background: transparent;
+}
+
+.lore-panel__frame {
+  flex: 1;
+  width: 100%;
+  border: none;
+  background: var(--panel);
+}
+
+/* Slide the floating GM toggle out from under an open lore panel. */
+.app:has(.lore-panel:not(.is-hidden)) .gm-toggle {
+  left: calc(var(--lore-w) + 16px);
+}
+
+/* The lore button in marker popups. */
+.popup__lore {
+  display: block;
+  width: 100%;
+  margin-top: 8px;
+}
+
 .gm-toggle.is-active {
   background: var(--accent-soft);
   border-color: var(--accent);
@@ -1101,6 +1183,7 @@ body.is-placing .map-canvas {
 @media (max-width: 720px) {
   :root {
     --sidebar-w: 100%;
+    --lore-w: 100%; /* lore panel becomes a full overlay on phones */
   }
 
   .app-title__sub {

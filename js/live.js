@@ -25,6 +25,7 @@ let session = { signedIn: false, email: undefined, userId: undefined, isGM: fals
 let notifyChange = () => {};
 let tokens = [];
 let tokenChannel = null;
+let loreIndex = new Map();
 
 // Province Data
 let liveCells = [];
@@ -399,6 +400,7 @@ async function applyAuth() {
   if (after && !before) await enterCloudMode();
   else if (!after && before) exitCloudMode();
   await refreshRevealed();
+  await refreshLoreIndex();
   notifyChange();
 }
 
@@ -646,6 +648,19 @@ export async function revealLocation(m, on) {
 }
 export function locationIndividuallyRevealed(m) {
   return revealedLocationIds.has(m.id);
+}
+
+
+//   --- WikiLore Integration ---
+async function refreshLoreIndex() {
+  const { data, error } = await supabase.rpc("wiki_location_index");
+  if (error) { console.warn("lore index fetch failed:", error.message); return; }
+  loreIndex = new Map((data ?? []).map((r) => [r.location_id, r]));
+}
+
+// The wiki article for the marker id, or null
+export function loreFor(locationId) {
+  return loreIndex.get(locationId) ?? null;
 }
 
 

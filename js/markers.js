@@ -115,3 +115,7 @@ export function searchMarkers(query, limit) {
     .filter((m) => m.name.toLowerCase().includes(q))
     .slice(0, limit);
 }
+
+export function getMarkerById(id) {
+  return markers.find((m) => m.id === id) ?? null;
+}

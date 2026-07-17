@@ -41,3 +41,5 @@ export const SESSION_ID = "default";
 /** How long a ping pulse lives on screen before it's ignored/removed (ms). */
 export const PING_LIFETIME_MS = 4000;
 
+export const WIKILORE_URL = "https://hshenk.github.io/WikiLore/";
+
