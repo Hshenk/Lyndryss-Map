@@ -332,6 +332,35 @@ body.is-placing .map-canvas {
   text-decoration: underline;
 }
 
+/* GM-only location id (for pasting into a WikiLore article). A borderless
+   button so it reads as a muted label but supports click-to-copy. */
+.popup__id {
+  display: block;
+  margin-top: 8px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.popup__id code {
+  color: var(--text);
+  font-family: ui-monospace, "Cascadia Code", "Consolas", monospace;
+}
+
+.popup__id:hover code {
+  color: var(--accent);
+}
+
+.popup__id.is-copied code::after {
+  content: " ✓ copied";
+  color: var(--text-muted);
+  font-family: var(--font);
+}
+
 /* Watabou location-map preview (Phase 3). JS adds .popup--wide alongside the
    preview so the embedded map gets room; min() keeps it on phone screens. */
 .popup--wide {

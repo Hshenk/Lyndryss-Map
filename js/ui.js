@@ -189,6 +189,17 @@ export function openMarkerPopup(marker, sx, sy) {
     });
   }
 
+  // GM Only, shows marker ID for WikiLore connections
+  if (isGM()) {
+    const idEl = popup.querySelector(".popup__id");
+    idEl.querySelector("code").textContent = marker.id;
+    idEl.classList.remove("is-hidden");
+    idEl.addEventListener("click", () => {
+      navigator.clipboard?.writeText(marker.id);
+      idEl.classList.add("is-copied");
+    })
+  }
+
 
   popup.querySelector(".popup__close").addEventListener("click", closePopups);
 

@@ -495,6 +495,10 @@
       <!-- Lore button (Phase 3, guide 04): JS unhides when the location index
            has a WikiLore article for this marker's id, wired to openLorePanel. -->
       <button class="popup__lore btn is-hidden" type="button">📖 Read lore</button>
+      <!-- GM-only: the marker's WikiLore location id, for pasting into an
+           article's location field. JS unhides it and fills the <code> when
+           isGM(); click-to-copy is wired in openMarkerPopup. -->
+      <button class="popup__id is-hidden" type="button" title="Click to copy">ID: <code></code></button>
       <!-- GM-only, live locations only (05e-5): reveal/un-reveal this location.
            JS (openMarkerPopup) unhides this when isGM() and the marker is a live
            one, sets the label (Reveal/Hide), and wires it to live.revealLocation. -->
