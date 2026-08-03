@@ -7,6 +7,7 @@
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { cookieStorage } from "./session-storage.js";
 import {
   SUPABASE_URL,
   SUPABASE_PUBLISHABLE_KEY,
@@ -83,7 +84,9 @@ export async function initLive(onChange) {
   notifyChange = onChange ?? (() => {});
   if (!configured()) return;
 
-  supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
+  supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
+    auth: { storage: cookieStorage },
+  });
 
   // Sign-in / Sign-out / token-refresh
   supabase.auth.onAuthStateChange((event) => {
