@@ -17,10 +17,12 @@
 
     <!-- ================= Header ================= -->
     <header id="app-header" class="app-header">
-      <h1 class="app-title">
-        <img class="app-title__icon" src="assets/icons/compass.svg" alt="" width="22" height="22">
-        Lyndryss
-        <span class="app-title__sub">Aye Dark Overlord</span>
+      <!-- Two separate links, mirroring WikiLore's header: "Lyndryss" goes up
+           to the hub, "Map" (accent) reloads this site. (Links can't nest, so
+           the h1 stays a plain wrapper.) -->
+      <h1 class="site-title">
+        <a class="site-title__home" href="https://lyndryss.com/">Lyndryss</a>
+        <a class="site-title__accent" href="https://map.lyndryss.com/">Map</a>
       </h1>
 
       <div class="header-meta">
@@ -82,7 +84,7 @@
         <!-- Login form. JS: on submit call live.signIn(email, password); on
              success swap to #gm-tools; on failure set #gm-login-error text. -->
         <form id="gm-login" class="gm-login" autocomplete="on">
-          <p class="hint">Sign in to place live pings and tokens players see in real time.</p>
+          <p class="hint">This menu is for the GM only. It will not sign you in as a player!</p>
           <label class="gm-login__field">
             <span class="gm-login__label">Email</span>
             <input id="gm-email" class="gm-login__input" type="email" name="email"

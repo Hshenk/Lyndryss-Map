@@ -31,6 +31,7 @@
   --lore-w: 340px;
   --ease: 200ms ease;
   --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-display: "Amarante", var(--font);   /* shared with WikiLore's title */
 }
 
 /* ---------- Reset / base ---------- */
@@ -82,26 +83,34 @@ button {
   z-index: 30;
 }
 
-.app-title {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
+/* Title matches WikiLore's: two separate links, Amarante display font.
+   "Lyndryss" → the hub, "Map" (accent) → this site's own URL. */
+.site-title {
   margin: 0;
-  font-size: 18px;
-  font-weight: 650;
-  letter-spacing: 0.04em;
-}
-
-.app-title__icon {
-  align-self: center;
-}
-
-.app-title__sub {
-  font-size: 12px;
+  font-family: var(--font-display);
   font-weight: 400;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--text-muted);
+  font-size: 22px;
+  color: var(--text);
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+}
+
+.site-title__home,
+.site-title__accent {
+  text-decoration: none;
+}
+
+.site-title__home {
+  color: var(--text);
+}
+
+.site-title__accent {
+  color: var(--accent);
+}
+
+.site-title__home:hover,
+.site-title__accent:hover {
+  text-decoration: underline;
 }
 
 .header-meta {
